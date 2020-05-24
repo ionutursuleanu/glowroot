@@ -127,6 +127,12 @@
            ng-if="agentRollup.permissions.jvm.threadDump && !isAgentRollup() && !layout.offlineViewer">
       </div>
       <div gt-sidebar-item
+           gt-display="Thread stats"
+           gt-url="jvm/thread-stats{{agentQueryString()}}"
+           gt-active="currentUrl() === 'jvm/thread-stats'"
+           ng-if="agentRollup.permissions.jvm.threadStats || (layout.central && !agentRollupId)">
+      </div>
+      <div gt-sidebar-item
            gt-display="Heap dump"
            gt-url="jvm/heap-dump{{agentQueryString()}}"
            gt-active="currentUrl() === 'jvm/heap-dump'"

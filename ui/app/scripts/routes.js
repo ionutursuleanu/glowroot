@@ -116,6 +116,8 @@ glowroot.config([
             return 'jvm/gauges';
           } else if (jvmPermissions.threadDump) {
             return 'jvm/thread-dump';
+          } else if (jvmPermissions.threadStats) {
+            return 'jvm/thread-stats';
           } else if (jvmPermissions.heapDump) {
             return 'jvm/heap-dump';
           } else if (jvmPermissions.heapHistogram) {
@@ -399,6 +401,11 @@ glowroot.config([
       url: '/jstack',
       templateUrl: 'views/jvm/jstack.html',
       controller: 'JvmJstackCtrl'
+    });
+    $stateProvider.state('jvm.threadStats', {
+      url: '/thread-stats',
+      templateUrl: 'views/jvm/thread-stats.html',
+      controller: 'JvmThreadStatsCtrl'
     });
     $stateProvider.state('jvm.heapDump', {
       url: '/heap-dump',

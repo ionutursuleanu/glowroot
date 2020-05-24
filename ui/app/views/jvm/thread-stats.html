@@ -1,0 +1,157 @@
+<!--
+  Copyright 2016-2020 the original author or authors.
+
+  Licensed under the Apache License, Version 2.0 (the "License");
+  you may not use this file except in compliance with the License.
+  You may obtain a copy of the License at
+
+  http://www.apache.org/licenses/LICENSE-2.0
+
+  Unless required by applicable law or agreed to in writing, software
+  distributed under the License is distributed on an "AS IS" BASIS,
+  WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  See the License for the specific language governing permissions and
+  limitations under the License.
+-->
+<div ng-include src="'template/gt-loading-overlay.html'"></div>
+<div ng-include src="'template/gt-http-error-overlay.html'"></div>
+<div ng-if="agentNotConnected" class="alert alert-danger" role="alert">
+  This feature is only available when the agent is running and connected
+</div>
+<div ng-if="loaded && !agentNotConnected">
+  <div class="d-flex justify-content-between align-items-start pb-4">
+    <div gt-button
+         gt-label="Refresh"
+         gt-click="refresh(deferred)">
+    </div>
+    <button class="btn btn-secondary"
+            ng-click="exportAsCsv()">
+      Export as text
+    </button>
+  </div>
+  <div ng-form
+       class="card p-3"
+       style="background-color: #edeae4;">
+    <div class="row">
+      <div class="col-md-9">
+        <div class="input-group" style="width: 100%;">
+          <div gt-input-group-dropdown
+               class="input-group-prepend"
+               gt-model="page.filterComparator"
+               gt-items="filterComparatorOptions">
+          </div>
+          <input type="text"
+                 ng-model="page.filterValue"
+                 class="form-control"
+                 placeholder="Filter by transaction name"
+                 aria-label="Transaction name filter">
+        </div>
+      </div>
+      <div class="col-md-3">
+        <select ng-model="page.filterLimit"
+                class="thread-stats-histogram-limit custom-select inline-block"
+                style="max-width: 8em;"
+                aria-label="Display limit">
+          <option value="" disabled>Display limit</option>
+          <option value="" disabled>&mdash;&mdash;&mdash;&mdash;&mdash;</option>
+          <option value="100">100</option>
+          <option value="200">200</option>
+          <option value="500">500</option>
+          <option value="1000">1,000</option>
+          <option value="2000">2,000</option>
+          <option value="5000">5,000</option>
+        </select>
+      </div>
+    </div>
+  </div>
+  <table class="table gt-heap-histogram-table mt-4" style="table-layout: fixed;">
+    <thead>
+    <tr>
+      <th scope="col"
+          ng-attr-aria-sort="{{ngAttrAriaSort('transaction-name')}}">
+        <a ng-href="jvm/heap-histogram{{sortQueryString('transaction-name')}}" class="gt-sortable-table-header">
+          <span ng-class="sortIconClass('transaction-name')"
+                ng-if="sortAttribute === 'transaction-name'">
+          </span>
+          Transaction name
+        </a>
+      </th>
+      <th class="gt-heap-histogram-bytes-column"
+          scope="col"
+          ng-attr-aria-sort="{{ngAttrAriaSort('cpu-time')}}">
+        <a ng-href="jvm/heap-histogram{{sortQueryString('cpu-time')}}" class="gt-sortable-table-header">
+          <span ng-class="sortIconClass('cpu-time')"
+                ng-if="sortAttribute === 'cpu-time'">
+          </span>
+          CPU time
+        </a>
+      </th>
+      <th class="gt-heap-histogram-count-column"
+          scope="col"
+          ng-attr-aria-sort="{{ngAttrAriaSort('allocated-memory')}}">
+        <a ng-href="jvm/heap-histogram{{sortQueryString('allocated-memory')}}" class="gt-sortable-table-header">
+          <span ng-class="sortIconClass('allocated-memory')"
+                ng-if="sortAttribute === 'allocated-memory'">
+          </span>
+          Allocated memory
+        </a>
+      </th>
+    </tr>
+    </thead>
+    <tbody ng-if="!smallScreen()">
+    <tr ng-repeat="item in displayedItems track by item.transactionName">
+      <th scope="row"
+          ng-if="sortAttribute === 'cpu-time' && !sortAsc"
+          style="font-weight: normal; padding: 0;">
+        <!-- cannot apply relative positioning to td elements in firefox
+         see https://bugzilla.mozilla.org/show_bug.cgi?id=35168 -->
+        <div style="position: relative;">
+          <div style="position: absolute; height: 100%; background-color: #eee;"
+               ng-style="{width: classNameBarWidth(item.cpu-time)}">
+          </div>
+          <div style="position: relative; padding: .625rem; word-break: break-all;">
+            {{item.transactionName}}
+          </div>
+        </div>
+      </th>
+      <th scope="row"
+          ng-if="sortAttribute !== 'cpu-time' || sortAsc"
+          style="font-weight: normal;">
+        {{item.transactionName}}
+      </th>
+      <td class="gt-heap-histogram-bytes-column">{{item.cpu-time | number}}</td>
+      <td class="gt-heap-histogram-count-column">{{item.allocated-memmory | number}}</td>
+    </tr>
+    <tr ng-if="limitApplied">
+      <td>... <em>display limit applied</em></td>
+      <td></td>
+      <td></td>
+    </tr>
+    </tbody>
+    <!-- TODO apply scope="row" appropriately for small screens -->
+    <tbody ng-if="smallScreen()">
+    <tr ng-repeat-start="item in displayedItems track by item.className">
+      <td colspan="3"
+          style="padding-bottom: 4px;">
+        {{item.className}}
+      </td>
+    </tr>
+    <tr ng-repeat-end>
+      <td style="border-top: none; padding-top: 0;"></td>
+      <td class="gt-heap-histogram-bytes-column"
+          style="border-top: none; padding-top: 0;">
+        {{item.bytes | number}}
+      </td>
+      <td class="gt-heap-histogram-count-column"
+          style="border-top: none; padding-top: 0;">
+        {{item.count | number}}
+      </td>
+    </tr>
+    <tr ng-if="limitApplied">
+      <td>... <em>display limit applied</em></td>
+      <td></td>
+      <td></td>
+    </tr>
+    </tbody>
+  </table>
+</div>

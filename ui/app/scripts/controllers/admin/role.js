@@ -134,6 +134,8 @@ glowroot.controller('AdminRoleCtrl', [
         permissionBlock.jvm.gauges = true;
       } else if (permission === 'agent:jvm:threadDump') {
         permissionBlock.jvm.threadDump = true;
+      } else if (permission === 'agent:jvm:threadStats') {
+        permissionBlock.jvm.threadStats = true;
       } else if (permission === 'agent:jvm:heapDump') {
         permissionBlock.jvm.heapDump = true;
       } else if (permission === 'agent:jvm:heapHistogram') {
@@ -194,6 +196,7 @@ glowroot.controller('AdminRoleCtrl', [
       if (permissionsObj.jvm._) {
         permissionsObj.jvm.gauges = false;
         permissionsObj.jvm.threadDump = false;
+        permissionsObj.jvm.threadStats = false;
         permissionsObj.jvm.heapDump = false;
         permissionsObj.jvm.heapHistogram = false;
         permissionsObj.jvm.forceGC = false;
@@ -284,6 +287,9 @@ glowroot.controller('AdminRoleCtrl', [
       }
       if (permissionsObj.jvm.threadDump) {
         permissions.push('agent:jvm:threadDump');
+      }
+      if (permissionsObj.jvm.threadStats) {
+        permissions.push('agent:jvm:threadStats');
       }
       if (permissionsObj.jvm.heapDump) {
         permissions.push('agent:jvm:heapDump');
@@ -429,6 +435,7 @@ glowroot.controller('AdminRoleCtrl', [
         jvm: {
           _: false,
           gauges: false,
+          threadStats: false,
           threadDump: false,
           heapDump: false,
           heapHistogram: false,

@@ -347,6 +347,8 @@ class LayoutService {
                                 "agent:jvm:gauges"))
                         .threadDump(authentication.isPermittedForAgentRollup(agentRollupId,
                                 "agent:jvm:threadDump"))
+                        .threadStats(authentication.isPermittedForAgentRollup(agentRollupId,
+                                "agent:jvm:threadStats"))
                         .heapDump(authentication.isPermittedForAgentRollup(agentRollupId,
                                 "agent:jvm:heapDump"))
                         .heapHistogram(authentication.isPermittedForAgentRollup(agentRollupId,
@@ -542,6 +544,7 @@ class LayoutService {
 
         abstract boolean gauges();
         abstract boolean threadDump();
+        abstract boolean threadStats();
         abstract boolean heapDump();
         abstract boolean heapHistogram();
         abstract boolean forceGC();

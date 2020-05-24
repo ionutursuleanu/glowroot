@@ -42,6 +42,7 @@ import com.google.common.collect.Sets;
 import com.google.common.io.CharStreams;
 import com.google.common.primitives.Longs;
 import org.checkerframework.checker.nullness.qual.Nullable;
+import org.glowroot.common.live.ImmutableOverviewAggregate;
 import org.immutables.value.Value;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -227,6 +228,14 @@ class JvmJsonService {
         } finally {
             jg.close();
         }
+        return sb.toString();
+    }
+
+    @GET(path = "/backend/jvm/thread-stats", permission = "agent:jvm:threadStats")
+    String getThreadStats(@BindAgentId String agentId) throws Exception {
+        checkNotNull(liveJvmService);
+        StringBuilder sb = new StringBuilder();
+        ImmutableMergedAggregate
         return sb.toString();
     }
 
