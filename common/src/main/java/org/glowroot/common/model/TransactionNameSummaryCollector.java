@@ -102,6 +102,8 @@ public class TransactionNameSummaryCollector {
         mts.totalCpuNanos += totalCpuNanos;
         mts.totalAllocatedBytes += totalAllocatedBytes;
         mts.transactionCount += transactionCount;
+        mts.totalCpuNanos += totalCpuNanos;
+        mts.totalAllocatedBytes += totalAllocatedBytes;
         lastCaptureTime = Math.max(lastCaptureTime, captureTime);
     }
 
@@ -119,6 +121,8 @@ public class TransactionNameSummaryCollector {
                     .totalCpuNanos(entry.getValue().totalCpuNanos)
                     .totalAllocatedBytes(entry.getValue().totalAllocatedBytes)
                     .transactionCount(entry.getValue().transactionCount)
+                    .totalCpuNanos(entry.getValue().totalCpuNanos)
+                    .totalAllocatedBytes(entry.getValue().totalAllocatedBytes)
                     .build());
         }
         summaries = sortTransactionNameSummaries(summaries, sortOrder);
@@ -163,6 +167,8 @@ public class TransactionNameSummaryCollector {
         double totalCpuNanos();
         double totalAllocatedBytes();
         long transactionCount();
+        double totalCpuNanos();
+        double totalAllocatedBytes();
     }
 
     private static class MutableTransactionNameSummary {
@@ -170,5 +176,7 @@ public class TransactionNameSummaryCollector {
         private double totalCpuNanos;
         private double totalAllocatedBytes;
         private long transactionCount;
+        private double totalCpuNanos;
+        private double totalAllocatedBytes;
     }
 }

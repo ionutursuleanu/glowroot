@@ -2854,6 +2854,26 @@ public class SchemaUpgrade {
         addColumnIfNotExists("aggregate_tn_summary_rollup_3", "total_allocated_bytes", "double");
     }
 
+    private void addAggregateSummaryColumns() throws Exception {
+        addColumnIfNotExists("aggregate_tt_summary_rollup_0", "total_cpu_nanos", "double");
+        addColumnIfNotExists("aggregate_tt_summary_rollup_1", "total_cpu_nanos", "double");
+        addColumnIfNotExists("aggregate_tt_summary_rollup_2", "total_cpu_nanos", "double");
+        addColumnIfNotExists("aggregate_tt_summary_rollup_3", "total_cpu_nanos", "double");
+        addColumnIfNotExists("aggregate_tn_summary_rollup_0", "total_cpu_nanos", "double");
+        addColumnIfNotExists("aggregate_tn_summary_rollup_1", "total_cpu_nanos", "double");
+        addColumnIfNotExists("aggregate_tn_summary_rollup_2", "total_cpu_nanos", "double");
+        addColumnIfNotExists("aggregate_tn_summary_rollup_3", "total_cpu_nanos", "double");
+
+        addColumnIfNotExists("aggregate_tt_summary_rollup_0", "total_allocated_bytes", "double");
+        addColumnIfNotExists("aggregate_tt_summary_rollup_1", "total_allocated_bytes", "double");
+        addColumnIfNotExists("aggregate_tt_summary_rollup_2", "total_allocated_bytes", "double");
+        addColumnIfNotExists("aggregate_tt_summary_rollup_3", "total_allocated_bytes", "double");
+        addColumnIfNotExists("aggregate_tn_summary_rollup_0", "total_allocated_bytes", "double");
+        addColumnIfNotExists("aggregate_tn_summary_rollup_1", "total_allocated_bytes", "double");
+        addColumnIfNotExists("aggregate_tn_summary_rollup_2", "total_allocated_bytes", "double");
+        addColumnIfNotExists("aggregate_tn_summary_rollup_3", "total_allocated_bytes", "double");
+    }
+
     private void addColumnIfNotExists(String tableName, String columnName, String cqlType)
             throws Exception {
         try {

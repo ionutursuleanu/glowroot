@@ -108,6 +108,8 @@ public class AggregateDaoImpl implements AggregateDao {
             .addColumns(ImmutableColumn.of("total_cpu_nanos", "double"))
             .addColumns(ImmutableColumn.of("total_allocated_bytes", "double"))
             .addColumns(ImmutableColumn.of("transaction_count", "bigint"))
+            .addColumns(ImmutableColumn.of("total_cpu_nanos", "double"))
+            .addColumns(ImmutableColumn.of("total_allocated_bytes", "double"))
             .summary(true)
             .fromInclusive(false)
             .build();
@@ -2251,6 +2253,8 @@ public class AggregateDaoImpl implements AggregateDao {
         summary.totalCpuNanos += row.getDouble(i++);
         summary.totalAllocatedBytes += row.getDouble(i++);
         summary.transactionCount += row.getLong(i++);
+        summary.totalCpuNanos += row.getDouble(i++);
+        summary.totalAllocatedBytes += row.getDouble(i++);
         return transactionName;
     }
 

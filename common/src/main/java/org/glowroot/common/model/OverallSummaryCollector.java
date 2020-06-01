@@ -23,6 +23,8 @@ public class OverallSummaryCollector {
     private double totalCpuNanos;
     private double totalAllocatedBytes;
     private long transactionCount;
+    private double totalCpuNanos;
+    private double totalAllocatedBytes;
 
     private long lastCaptureTime;
 
@@ -36,6 +38,8 @@ public class OverallSummaryCollector {
                 .totalCpuNanos(totalCpuNanos)
                 .totalAllocatedBytes(totalAllocatedBytes)
                 .transactionCount(transactionCount)
+                .totalCpuNanos(totalCpuNanos)
+                .totalAllocatedBytes(totalAllocatedBytes)
                 .build();
     }
 
@@ -45,6 +49,8 @@ public class OverallSummaryCollector {
         this.totalCpuNanos += totalCpuNanos;
         this.totalAllocatedBytes += totalAllocatedBytes;
         this.transactionCount += transactionCount;
+        this.totalCpuNanos += totalCpuNanos;
+        this.totalAllocatedBytes += totalAllocatedBytes;
         lastCaptureTime = Math.max(lastCaptureTime, captureTime);
     }
 
@@ -55,5 +61,7 @@ public class OverallSummaryCollector {
         double totalCpuNanos();
         double totalAllocatedBytes();
         long transactionCount();
+        double totalCpuNanos();
+        double totalAllocatedBytes();
     }
 }
