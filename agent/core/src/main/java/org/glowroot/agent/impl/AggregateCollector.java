@@ -60,6 +60,8 @@ class AggregateCollector {
     private double totalCpuNanos;
     private double totalAllocatedBytes;
     private long transactionCount;
+    private double totalCpuNanos;
+    private double totalAllocatedBytes;
     private long errorCount;
     private boolean asyncTransactions;
     private final RootTimerCollectorImpl mainThreadRootTimers = new RootTimerCollectorImpl();
