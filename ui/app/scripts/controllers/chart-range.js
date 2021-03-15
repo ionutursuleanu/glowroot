@@ -113,6 +113,10 @@ glowroot.controller('ChartRangeCtrl', [
       30 * 24 * 60 * 60 * 1000 // 30 days
     ];
 
+    if ($location.host() === 'localhost') {
+      $scope.rangeSelections.splice(0, 0, 5 * 60 * 1000); // 5 minutes
+    }
+
     $scope.openCustomRange = function () {
       modals.display('#customDateRangeModal', true);
       var from = $scope.range.chartFrom;
