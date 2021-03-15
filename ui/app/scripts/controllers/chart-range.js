@@ -48,9 +48,6 @@ glowroot.controller('ChartRangeCtrl', [
       if (last === 24 * 60 * 60 * 1000) {
         return 'Last 24 hours'; // instead of Last 1 day
       }
-      if (last === 2 * 7 * 24 * 60 * 60 * 1000) {
-        return 'Last 2 weeks'; // instead of Last 14 days
-      }
 
       var display = 'Last';
 
@@ -105,15 +102,15 @@ glowroot.controller('ChartRangeCtrl', [
     };
 
     $scope.rangeSelections = [
-      5 * 60 * 1000, // 5 minutes
       30 * 60 * 1000, // 30 minutes
       60 * 60 * 1000, // 60 minutes
+      2 * 60 * 60 * 1000, // 2 hours
       4 * 60 * 60 * 1000, // 4 hours
       8 * 60 * 60 * 1000, // 8 hours
       24 * 60 * 60 * 1000, // 24 hours
       2 * 24 * 60 * 60 * 1000, // 2 days
       7 * 24 * 60 * 60 * 1000, // 7 days
-      2 * 7 * 24 * 60 * 60 * 1000 // 2 weeks
+      30 * 24 * 60 * 60 * 1000 // 30 days
     ];
 
     $scope.openCustomRange = function () {
