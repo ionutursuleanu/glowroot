@@ -994,6 +994,7 @@ HandlebarsRendering = (function () {
       return;
     }
     var html;
+    var clipHtml;
     if (prefix || suffix) {
       var parameters = suffix.replace(/ => [0-9]+ rows?$/, '');
       var rows = suffix.substring(parameters.length + 1);
@@ -1009,17 +1010,25 @@ HandlebarsRendering = (function () {
       if (rows) {
         html += '\n\n<span class="gt-indent2">rows:</span>\n\n' + '<span class="gt-indent2">  ' + rows + '</span>';
       }
+      if (parameters) {
+        clipHtml = escapeHtml(sqlBindVariables(formatted, parameters));
+      } else {
+        clipHtml = html;
+      }
     } else {
       // simulating pre using span, because with pre tag, when selecting text and copy-pasting from firefox
       // there are extra newlines after the pre tag
       html = '<span class="gt-indent1 d-inline-block" style="white-space: pre-wrap;">' + escapeHtml(formatted)
           + '</span>';
+      clipHtml = html;
       expanded.addClass('gt-padding-top-override');
     }
     expanded.css('padding-bottom', '10px');
     var $message = expanded.find('.gt-pre-wrap');
     $message.html(html);
     $message.css('min-width', 0.6 * unexpanded.parent().width());
+    var $clipText = expanded.find('.gt-clip-text');
+    $clipText.html(clipHtml);
   }
 
   function sqlPrettyPrint(queryText) {
@@ -1088,6 +1097,23 @@ HandlebarsRendering = (function () {
       }
     }
     return formatted;
+  }
+
+  function sqlBindVariables(queryText, parameters) {
+    var bindVariables = parameters.substring(1, parameters.length - 1).split(',');
+    var i;
+    for (i = 0; i < bindVariables.length; i++) {
+      bindVariables[i] = bindVariables[i].trim();
+      if (Date.parse(bindVariables[i])) {
+        bindVariables[i] = '\'' + bindVariables[i] + '\'';
+      }
+    }
+
+    var finalQueryText = queryText;
+    for (i = 0; i < bindVariables.length; i++) {
+      finalQueryText = finalQueryText.replace('?', bindVariables[i]);
+    }
+    return finalQueryText;
   }
 
   function basicToggle(parent) {
