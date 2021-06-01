@@ -994,7 +994,7 @@ HandlebarsRendering = (function () {
       return;
     }
     var html;
-    var clipHtml;
+    var htmlAlt;
     if (prefix || suffix) {
       var parameters = suffix.replace(/ => [0-9]+ rows?$/, '');
       var rows = suffix.substring(parameters.length + 1);
@@ -1011,24 +1011,24 @@ HandlebarsRendering = (function () {
         html += '\n\n<span class="gt-indent2">rows:</span>\n\n' + '<span class="gt-indent2">  ' + rows + '</span>';
       }
       if (parameters) {
-        clipHtml = escapeHtml(sqlBindVariables(formatted, parameters));
+        htmlAlt = escapeHtml(sqlBindVariables(formatted, parameters));
       } else {
-        clipHtml = html;
+        htmlAlt = html;
       }
     } else {
       // simulating pre using span, because with pre tag, when selecting text and copy-pasting from firefox
       // there are extra newlines after the pre tag
       html = '<span class="gt-indent1 d-inline-block" style="white-space: pre-wrap;">' + escapeHtml(formatted)
           + '</span>';
-      clipHtml = html;
+      htmlAlt = html;
       expanded.addClass('gt-padding-top-override');
     }
     expanded.css('padding-bottom', '10px');
     var $message = expanded.find('.gt-pre-wrap');
     $message.html(html);
     $message.css('min-width', 0.6 * unexpanded.parent().width());
-    var $clipText = expanded.find('.gt-clip-text');
-    $clipText.html(clipHtml);
+    var $messageAlt = expanded.find('.gt-pre-wrap-alt');
+    $messageAlt.html(htmlAlt);
   }
 
   function sqlPrettyPrint(queryText) {
@@ -1103,9 +1103,10 @@ HandlebarsRendering = (function () {
     var bindVariables = parameters.substring(1, parameters.length - 1).split(',');
     var i;
     for (i = 0; i < bindVariables.length; i++) {
-      bindVariables[i] = bindVariables[i].trim();
-      if (Date.parse(bindVariables[i])) {
-        bindVariables[i] = '\'' + bindVariables[i] + '\'';
+      var bindVariable = bindVariables[i].trim();
+      var regex = /\d{4}-\d{2}-\d{2}/;
+      if (regex.test(bindVariable) && Date.parse(bindVariable)) {
+        bindVariables[i] = '\'' + bindVariable + '\'';
       }
     }
 
@@ -1116,7 +1117,7 @@ HandlebarsRendering = (function () {
     return finalQueryText;
   }
 
-  function basicToggle(parent) {
+  function basicToggle(parent, e) {
     var expanded = parent.find('.gt-expanded-content');
     var unexpanded = parent.find('.gt-unexpanded-content');
 
@@ -1141,6 +1142,13 @@ HandlebarsRendering = (function () {
     if (expanded.hasClass('d-none') && !expanded.data('gtExpandedPreviously')) {
       var $clipboardIcon = expanded.find('.fa-clipboard');
       var clipTextNode = expanded.find('.gt-clip-text');
+      $clipboardIcon.on('click', function (e, keyboard) {
+        if (e.altKey) {
+          clipTextNode = expanded.find('.gt-clip-text-alt');
+        } else {
+          clipTextNode = expanded.find('.gt-clip-text');
+        }
+      });
       var clipboardContainer;
       if ($('#headerJson').length === 0) {
         // .modal-dialog is used instead of .modal for the clipboard (tooltip) container
@@ -1301,14 +1309,14 @@ HandlebarsRendering = (function () {
 
   function smartToggle(parent, e, keyboard) {
     if (keyboard) {
-      basicToggle(parent);
+      basicToggle(parent, e);
       return;
     }
     if (Math.abs(e.pageX - mousedownPageX) > 5 || Math.abs(e.pageY - mousedownPageY) > 5) {
       // not a simple single click, probably highlighting text
       return;
     }
-    basicToggle(parent);
+    basicToggle(parent, e);
   }
 
   function escapeHtml(text) {
