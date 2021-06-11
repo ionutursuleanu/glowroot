@@ -68,11 +68,11 @@
               Delete all
             </button>
             <div gt-button
-                 gt-btn-class="btn-secondary"
+                 gt-btn-class="btn-warning"
                  gt-label="Apply changes without restart"
                  gt-click="retransformClasses(deferred)"
                  gt-confirm-header="Apply changes without restart?"
-                 gt-confirm-body="Warning: This has chance of crashing the JVM (especially on older JVMs)."
+                 gt-confirm-body="This has chance of crashing the JVM (especially on older JVMs)."
                  ng-if="dirty && jvmRetransformClassesSupported"
                  class="d-inline-block">
             </div>
