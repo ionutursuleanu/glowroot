@@ -23,6 +23,9 @@
     <div ng-include src="'template/gt-http-error-overlay.html'"></div>
     <!-- not using gt-form-autofocus-on-first-input in order to handle special case #rollup-detail-capped-size
          and trace-detail-capped-size urls (see storage.js) -->
+    <div class="alert alert-warning text-center">
+      Overhead depends on many factors, but is generally in the low microseconds. Changing defaults might increase it.
+    </div>
     <div ng-form
          name="formCtrl">
       <fieldset class="gt-fieldset"
