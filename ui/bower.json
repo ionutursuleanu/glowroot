@@ -23,7 +23,7 @@
     "moment": "2.23.0",
     "moment-timezone": "0.5.23",
     "popper.js": "1.14.6",
-    "sequeljs": "ionutursuleanu/sequeljs#a44ca4f79d624aa0366db77dc4e9953f38d06e24",
+    "sequeljs": "ionutursuleanu/sequeljs#c110a71602ec7a11ec19ec92b88202ba37700c47",
     "spinjs": "2.3.2"
   },
   "resolutions": {
