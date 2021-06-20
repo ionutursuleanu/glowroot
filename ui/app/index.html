@@ -179,6 +179,13 @@
                 Administration
               </a>
               <a class="dropdown-item"
+                 href="https://github.com/ionutursuleanu/glowroot"
+                 target="_blank"
+                 ng-click="collapseIfNeeded()"
+                 style="padding-top: 5px; padding-bottom: 5px;">
+                GitHub&nbsp;<i class="fas fa-external-link-alt"></i>
+              </a>
+              <a class="dropdown-item"
                  href="login"
                  ng-click="collapseIfNeeded(); goToLogin($event)"
                  ng-if="!layout.loggedIn && layout.loginEnabled"
