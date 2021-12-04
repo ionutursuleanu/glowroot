@@ -24,16 +24,7 @@ import java.util.concurrent.Semaphore;
 import javax.management.MBeanServer;
 import javax.management.ObjectName;
 
-import com.datastax.driver.core.BoundStatement;
-import com.datastax.driver.core.Cluster;
-import com.datastax.driver.core.ConsistencyLevel;
-import com.datastax.driver.core.KeyspaceMetadata;
-import com.datastax.driver.core.PreparedStatement;
-import com.datastax.driver.core.ResultSet;
-import com.datastax.driver.core.ResultSetFuture;
-import com.datastax.driver.core.SimpleStatement;
-import com.datastax.driver.core.Statement;
-import com.datastax.driver.core.TableMetadata;
+import com.datastax.driver.core.*;
 import com.datastax.driver.core.exceptions.InvalidConfigurationInQueryException;
 import com.datastax.driver.core.exceptions.NoHostAvailableException;
 import com.google.common.base.Function;
@@ -444,7 +435,18 @@ public class Session {
         while (stopwatch.elapsed(SECONDS) < 60) {
             try {
                 wrappedSession.execute(query);
-                return;
+                final Metadata clusterMetadata = wrappedSession.getCluster().getMetadata();
+                if (clusterMetadata.getKeyspace("system_schema_mcs") != null) {
+                    final Row row = wrappedSession.execute("select count(*) " +
+                                    "from system_schema_mcs.tables " +
+                                    "where keyspace_name = '" + wrappedSession.getLoggedKeyspace() + "' AND status = 'CREATING'")
+                            .one();
+                    if (row.getInt(0) == 0) {
+                        return;
+                    }
+                } else {
+                    return;
+                }
             } catch (NoHostAvailableException e) {
                 logger.debug(e.getMessage(), e);
             }
