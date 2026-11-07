@@ -7,7 +7,7 @@
   <parent>
     <groupId>org.glowroot</groupId>
     <artifactId>glowroot-parent</artifactId>
-    <version>0.14.1</version>
+    <version>0.14.8</version>
     <relativePath>../../..</relativePath>
   </parent>
 
@@ -24,7 +24,7 @@
     </dependency>
     <dependency>
       <groupId>org.junit.jupiter</groupId>
-      <artifactId>junit-jupiter-api</artifactId>
+      <artifactId>junit-jupiter</artifactId>
       <scope>test</scope>
     </dependency>
     <dependency>
@@ -61,6 +61,8 @@
                 the glowroot-ui to not work -->
               <include>org.glowroot:glowroot-agent-api</include>
               <include>com.googlecode.owasp-java-html-sanitizer:owasp-java-html-sanitizer</include>
+              <include>com.googlecode.owasp-java-html-sanitizer:java8-shim</include>
+              <include>com.googlecode.owasp-java-html-sanitizer:java10-shim</include>
               <include>com.h2database:h2</include>
               <include>com.ning:compress-lzf</include>
               <include>com.sun.mail:mailapi</include>
@@ -71,9 +73,31 @@
           </artifactSet>
           <filters>
             <filter>
+              <artifact>*:*</artifact>
+              <excludes>
+                <exclude>META-INF/native-image/reflect-config.json</exclude>
+                <exclude>META-INF/native-image/resource-config.json</exclude>
+              </excludes>
+            </filter>
+            <filter>
               <artifact>com.googlecode.owasp-java-html-sanitizer:owasp-java-html-sanitizer</artifact>
               <excludes>
                 <exclude>META-INF/MANIFEST.MF</exclude>
+                <exclude>module-info.class</exclude>
+              </excludes>
+            </filter>
+            <filter>
+              <artifact>com.googlecode.owasp-java-html-sanitizer:java8-shim</artifact>
+              <excludes>
+                <exclude>META-INF/MANIFEST.MF</exclude>
+                <exclude>module-info.class</exclude>
+              </excludes>
+            </filter>
+            <filter>
+              <artifact>com.googlecode.owasp-java-html-sanitizer:java10-shim</artifact>
+              <excludes>
+                <exclude>META-INF/MANIFEST.MF</exclude>
+                <exclude>module-info.class</exclude>
               </excludes>
             </filter>
             <filter>
@@ -179,6 +203,10 @@
               <shadedPattern>org.glowroot.agent.embedded.shaded.org.owasp.html</shadedPattern>
             </relocation>
             <relocation>
+              <pattern>org.owasp.shim</pattern>
+              <shadedPattern>org.glowroot.agent.embedded.shaded.org.owasp.shim</shadedPattern>
+            </relocation>
+            <relocation>
               <!-- shade thread names to make it easy to identify glowroot threads -->
               <rawString>true</rawString>
               <pattern>H2 File Lock Watchdog</pattern>
@@ -207,6 +235,49 @@
                 above -->
               <pattern>java.sql.SQLException</pattern>
               <shadedPattern>org.glowroot.agent.embedded.sql.SQLException</shadedPattern>
+            </relocation>
+            <!-- H2 2.x exception classes extend these java.sql intermediate exception types;
+              without relocating them, after shading their superclass chain no longer connects
+              to org.glowroot.agent.embedded.sql.SQLException, causing VerifyError -->
+            <relocation>
+              <pattern>java.sql.SQLNonTransientException</pattern>
+              <shadedPattern>org.glowroot.agent.embedded.sql.SQLNonTransientException</shadedPattern>
+            </relocation>
+            <relocation>
+              <pattern>java.sql.SQLTransientException</pattern>
+              <shadedPattern>org.glowroot.agent.embedded.sql.SQLTransientException</shadedPattern>
+            </relocation>
+            <relocation>
+              <pattern>java.sql.SQLDataException</pattern>
+              <shadedPattern>org.glowroot.agent.embedded.sql.SQLDataException</shadedPattern>
+            </relocation>
+            <relocation>
+              <pattern>java.sql.SQLFeatureNotSupportedException</pattern>
+              <shadedPattern>org.glowroot.agent.embedded.sql.SQLFeatureNotSupportedException</shadedPattern>
+            </relocation>
+            <relocation>
+              <pattern>java.sql.SQLIntegrityConstraintViolationException</pattern>
+              <shadedPattern>org.glowroot.agent.embedded.sql.SQLIntegrityConstraintViolationException</shadedPattern>
+            </relocation>
+            <relocation>
+              <pattern>java.sql.SQLInvalidAuthorizationSpecException</pattern>
+              <shadedPattern>org.glowroot.agent.embedded.sql.SQLInvalidAuthorizationSpecException</shadedPattern>
+            </relocation>
+            <relocation>
+              <pattern>java.sql.SQLNonTransientConnectionException</pattern>
+              <shadedPattern>org.glowroot.agent.embedded.sql.SQLNonTransientConnectionException</shadedPattern>
+            </relocation>
+            <relocation>
+              <pattern>java.sql.SQLSyntaxErrorException</pattern>
+              <shadedPattern>org.glowroot.agent.embedded.sql.SQLSyntaxErrorException</shadedPattern>
+            </relocation>
+            <relocation>
+              <pattern>java.sql.SQLTimeoutException</pattern>
+              <shadedPattern>org.glowroot.agent.embedded.sql.SQLTimeoutException</shadedPattern>
+            </relocation>
+            <relocation>
+              <pattern>java.sql.SQLTransactionRollbackException</pattern>
+              <shadedPattern>org.glowroot.agent.embedded.sql.SQLTransactionRollbackException</shadedPattern>
             </relocation>
             <relocation>
               <pattern>com.ning.compress</pattern>
@@ -294,6 +365,7 @@
             <option>-dontoptimize</option>
             <option>-dontnote **</option>
             <option>-dontwarn **</option>
+            <option>-keep class org.glowroot.agent.embedded.shaded.org.owasp.shim.** { *; }</option>
             <option>-keep class !org.glowroot.agent.embedded.shaded.** { *; }</option>
             <option>-keep class org.glowroot.agent.embedded.shaded.org.glowroot.** { *; }</option>
             <option>
@@ -311,6 +383,50 @@
           </options>
         </configuration>
       </plugin>
+      <plugin>
+        <groupId>org.cyclonedx</groupId>
+        <artifactId>cyclonedx-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <phase>package</phase>
+            <goals>
+              <goal>makeBom</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
     </plugins>
   </build>
+
+  <profiles>
+    <profile>
+      <!-- add -dontpreverify when jmods are absent (e.g. Temurin JDK 25+); when jmods are
+        present the auto-activated-jmods profile in root pom.xml provides library jars and
+        ProGuard runs preverification normally, which is required for correct StackMapTable.
+        -dontshrink is required here: without it, ProGuard's shrink pass invalidates StackMapTable
+        offsets causing VerifyError at runtime; with -dontshrink the original javac-generated
+        StackMapTable is preserved intact -->
+      <id>proguard-dontpreverify</id>
+      <activation>
+        <file>
+          <missing>${java.home}/jmods/java.base.jmod</missing>
+        </file>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>com.github.wvengen</groupId>
+            <artifactId>proguard-maven-plugin</artifactId>
+            <configuration>
+              <options combine.children="append">
+                <option>-dontpreverify</option>
+                <option>-dontshrink</option>
+                <option>-keepattributes StackMapTable</option>
+              </options>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>

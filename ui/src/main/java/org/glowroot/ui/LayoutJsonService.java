@@ -19,6 +19,7 @@ import java.util.List;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.Lists;
+import org.glowroot.common2.repo.CassandraProfile;
 import org.immutables.value.Value;
 
 import org.glowroot.common.util.ObjectMappers;
@@ -47,7 +48,7 @@ class LayoutJsonService {
     String getTopLevelAgentRollups(@BindRequest TopLevelAgentRollupsRequest request,
             @BindAuthentication Authentication authentication) throws Exception {
         List<TopLevelAgentRollup> topLevelAgentRollups =
-                activeAgentRepository.readActiveTopLevelAgentRollups(request.from(), request.to());
+                activeAgentRepository.readActiveTopLevelAgentRollups(request.from(), request.to(), CassandraProfile.web).toCompletableFuture().get();
         List<FilteredTopLevelAgentRollup> filtered = Lists.newArrayList();
         for (TopLevelAgentRollup topLevelAgentRollup : topLevelAgentRollups) {
             HasAnyPermission hasAnyPermission =
@@ -69,7 +70,7 @@ class LayoutJsonService {
         List<FilteredChildAgentRollup> childAgentRollups =
                 filterChildAgentRollups(
                         activeAgentRepository.readActiveChildAgentRollups(
-                                request.topLevelId(), request.from(), request.to()),
+                                request.topLevelId(), request.from(), request.to(), CassandraProfile.web).toCompletableFuture().get(),
                         authentication);
         List<AgentRollupSmall> dropdown = Lists.newArrayList();
         for (FilteredChildAgentRollup childAgentRollup : childAgentRollups) {
@@ -81,16 +82,10 @@ class LayoutJsonService {
     @GET(path = "/backend/agent-rollup", permission = "")
     String getAgentRollup(@BindRequest AgentRollupRequest request,
             @BindAuthentication Authentication authentication) throws Exception {
+        // Always return the built layout (permissions may all be false). Empty "{}"
+        // broke the central UI which assigns response.data to $rootScope.agentRollup.
         AgentRollupLayout agentRollupLayout =
                 layoutService.buildAgentRollupLayout(authentication, request.id());
-        if (agentRollupLayout == null) {
-            // FIXME let user know that UI configuration not found
-            return "{}";
-        }
-        if (!agentRollupLayout.permissions().hasSomeAccess()) {
-            // FIXME return no-access AgentRollupLayout
-            return "{}";
-        }
         return mapper.writeValueAsString(agentRollupLayout);
     }
 

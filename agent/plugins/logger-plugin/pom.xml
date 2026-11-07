@@ -7,7 +7,7 @@
   <parent>
     <groupId>org.glowroot</groupId>
     <artifactId>glowroot-parent</artifactId>
-    <version>0.14.1</version>
+    <version>0.14.8</version>
     <relativePath>../../..</relativePath>
   </parent>
 
@@ -18,11 +18,10 @@
 
   <properties>
     <!-- instrumented libraries -->
-    <logback.version>1.2.6</logback.version>
-    <slf4j.version>1.7.32</slf4j.version>
+    <logback.version>1.5.25</logback.version>
+    <slf4j.version>2.0.17</slf4j.version>
     <log4j.version>1.2.17</log4j.version>
-    <!-- need to update instrumentation for 2.12.1+ !! -->
-    <log4j2x.version>2.12.0</log4j2x.version>
+    <log4j2x.version>2.24.3</log4j2x.version>
     <commons.logging.version>1.2</commons.logging.version>
     <!-- JBoss Logging 2.1+ requires Java 8+ -->
     <jboss.logging.version>2.0.11.Final</jboss.logging.version>
@@ -37,7 +36,7 @@
     </dependency>
     <dependency>
       <groupId>org.junit.jupiter</groupId>
-      <artifactId>junit-jupiter-api</artifactId>
+      <artifactId>junit-jupiter</artifactId>
       <scope>test</scope>
     </dependency>
     <dependency>
@@ -185,6 +184,29 @@
           </plugin>
         </plugins>
       </build>
+    </profile>
+    <profile>
+      <!-- test against log4j 2.x < 2.12.1 to verify the ExtendedLogger.logMessage pointcut -->
+      <id>log4j2x-old</id>
+      <properties>
+        <log4j2x.version>2.12.0</log4j2x.version>
+      </properties>
+    </profile>
+    <profile>
+      <!-- test backward compatibility with Logback 1.2.x + SLF4J 1.7.x -->
+      <id>logback-1.2</id>
+      <properties>
+        <logback.version>1.2.13</logback.version>
+        <slf4j.version>1.7.36</slf4j.version>
+      </properties>
+    </profile>
+    <profile>
+      <!-- test against Logback 1.5.x + SLF4J 2.x to verify the ILoggingEventInvoker fix -->
+      <id>logback-1.5</id>
+      <properties>
+        <logback.version>1.5.18</logback.version>
+        <slf4j.version>2.0.17</slf4j.version>
+      </properties>
     </profile>
     <profile>
       <id>logback-old</id>

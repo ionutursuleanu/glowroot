@@ -18,6 +18,7 @@
 
 glowroot.controller('TracesCtrl', [
   '$scope',
+  '$rootScope',
   '$location',
   '$http',
   '$q',
@@ -27,7 +28,7 @@ glowroot.controller('TracesCtrl', [
   'traceModal',
   'queryStrings',
   'traceKind',
-  function ($scope, $location, $http, $q, locationChanges, charts, httpErrors, traceModal, queryStrings, traceKind) {
+  function ($scope, $rootScope, $location, $http, $q, locationChanges, charts, httpErrors, traceModal, queryStrings, traceKind) {
 
     $scope.$parent.activeTabItem = 'traces';
 
@@ -65,12 +66,31 @@ glowroot.controller('TracesCtrl', [
 
     // using $watch instead of $watchGroup because $watchGroup has confusing behavior regarding oldValues
     // (see https://github.com/angular/angular.js/pull/12643)
+    $scope.filterCriteriaInvalid = false;
+
+    $scope.$watch(function () {
+      return $scope.formCtrl && $scope.formCtrl.$invalid;
+    }, function (invalid) {
+      if (!invalid) {
+        $scope.filterCriteriaInvalid = false;
+        if ($scope.formCtrl && $scope.formCtrl.$$element) {
+          $scope.formCtrl.$$element.removeClass('was-validated');
+        }
+      }
+    });
+
     $scope.$watch('[range.chartFrom, range.chartTo, range.chartRefresh, range.chartAutoRefresh]',
         function (newValues, oldValues) {
-          if ($scope.formCtrl.$invalid) {
-            // TODO display message to user
+          if ($scope.formCtrl && $scope.formCtrl.$invalid) {
+            // Same cue as Refresh (gt-validate-form): show field errors + chart banner.
+            // Chart range changes otherwise look like a no-op when filters are invalid.
+            if ($scope.formCtrl.$$element) {
+              $scope.formCtrl.$$element.addClass('was-validated');
+            }
+            $scope.filterCriteriaInvalid = true;
             return;
           }
+          $scope.filterCriteriaInvalid = false;
           appliedFilter.from = $scope.range.chartFrom;
           appliedFilter.to = $scope.range.chartTo;
           updateLocation();
@@ -154,6 +174,12 @@ glowroot.controller('TracesCtrl', [
             $scope.showExpiredMessage = data.expired;
             $scope.chartLimitExceeded = data.limitExceeded;
             $scope.chartLimit = limit;
+            // Keep Slow/Error traces tab count in sync with what the chart actually shows (#725).
+            // When the limit is exceeded the tab controller still fetches the filtered total.
+            if (!data.limitExceeded) {
+              // ui-router named views are siblings — $rootScope reaches the tab controller
+              $rootScope.$broadcast('gtDisplayedTraceCount', traceCount);
+            }
             // user clicked on Refresh button, need to reset axes
             plot.getAxes().xaxis.options.min = from;
             plot.getAxes().xaxis.options.max = to;
@@ -183,6 +209,8 @@ glowroot.controller('TracesCtrl', [
       }
       charts.applyLast($scope);
       angular.extend(appliedFilter, $scope.filter);
+      // Write filters to the URL before chartRefresh so the tab count request sees them (#725)
+      updateLocation();
       $scope.range.chartRefresh++;
     };
 

@@ -29,10 +29,9 @@ import org.glowroot.agent.embedded.util.CappedDatabase;
 import org.glowroot.agent.embedded.util.DataSource;
 import org.glowroot.agent.embedded.util.DataSource.JdbcQuery;
 import org.glowroot.common.util.Clock;
-import org.glowroot.common2.repo.ImmutableTraceCount;
-import org.glowroot.common2.repo.ImmutableTraceCounts;
-import org.glowroot.common2.repo.ImmutableTraceOverallCount;
-import org.glowroot.common2.repo.RepoAdmin;
+import org.glowroot.common2.config.EmbeddedStorageConfig;
+import org.glowroot.common2.config.H2CacheSize;
+import org.glowroot.common2.repo.*;
 import org.glowroot.wire.api.model.CollectorServiceOuterClass.InitMessage.Environment;
 
 import static com.google.common.base.Preconditions.checkNotNull;
@@ -85,7 +84,7 @@ class RepoAdminImpl implements RepoAdmin {
 
     @Override
     public void deleteAllData() throws Exception {
-        Environment environment = environmentDao.read("");
+        Environment environment = environmentDao.read("", CassandraProfile.web).toCompletableFuture().join();
         dataSource.deleteAll();
         alertingDisabledDao.reinitAfterDeletingDatabase();
         environmentDao.reinitAfterDeletingDatabase();
@@ -138,14 +137,15 @@ class RepoAdminImpl implements RepoAdmin {
 
     @Override
     public void resizeIfNeeded() throws Exception {
+        EmbeddedStorageConfig storageConfig = configRepository.getEmbeddedStorageConfig();
         // resize() doesn't do anything if the new and old value are the same
         for (int i = 0; i < rollupCappedDatabases.size(); i++) {
             rollupCappedDatabases.get(i).resize(
-                    configRepository.getEmbeddedStorageConfig().rollupCappedDatabaseSizesMb().get(i)
-                            * 1024);
+                    storageConfig.rollupCappedDatabaseSizesMb().get(i) * 1024);
         }
-        traceCappedDatabase.resize(
-                configRepository.getEmbeddedStorageConfig().traceCappedDatabaseSizeMb() * 1024);
+        traceCappedDatabase.resize(storageConfig.traceCappedDatabaseSizeMb() * 1024);
+        dataSource.setCacheSizeKb(H2CacheSize.resolveKbFromConfig(storageConfig,
+                Runtime.getRuntime().maxMemory()));
     }
 
     @Override

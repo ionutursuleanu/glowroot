@@ -17,7 +17,6 @@ package org.glowroot.ui;
 
 import java.util.Collections;
 import java.util.Comparator;
-import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -32,6 +31,7 @@ import com.google.common.collect.Ordering;
 import com.google.common.io.CharStreams;
 import com.google.common.primitives.Doubles;
 import org.checkerframework.checker.nullness.qual.Nullable;
+import org.glowroot.common2.repo.CassandraProfile;
 import org.immutables.value.Value;
 
 import org.glowroot.common.live.ImmutableAggregateQuery;
@@ -102,12 +102,12 @@ class TransactionJsonService {
         AggregateQuery query = toChartQuery(request, DataKind.GENERAL);
         long liveCaptureTime = clock.currentTimeMillis();
         List<OverviewAggregate> overviewAggregates =
-                transactionCommonService.getOverviewAggregates(agentRollupId, query, autoRefresh);
+                transactionCommonService.getOverviewAggregates(agentRollupId, query, autoRefresh).toCompletableFuture().get();
         if (overviewAggregates.isEmpty() && fallBackToLargestAggregates(query)) {
             // fall back to largest aggregates in case expiration settings have recently changed
             query = withLargestRollupLevel(query);
             overviewAggregates = transactionCommonService.getOverviewAggregates(agentRollupId,
-                    query, autoRefresh);
+                    query, autoRefresh).toCompletableFuture().get();
             if (!overviewAggregates.isEmpty() && ignoreFallBackData(query,
                     Iterables.getLast(overviewAggregates).captureTime())) {
                 // this is probably data from before the requested time period
@@ -123,7 +123,8 @@ class TransactionJsonService {
         List<OverviewAggregate> overviewAggregatesForMerging = Lists.newArrayList();
         for (OverviewAggregate overviewAggregate : overviewAggregates) {
             long captureTime = overviewAggregate.captureTime();
-            if (captureTime > request.from() && captureTime <= request.to()) {
+            if (StackedTimerTotals.captureTimeInMergedRange(captureTime, request.from(),
+                    request.to())) {
                 overviewAggregatesForMerging.add(overviewAggregate);
             }
         }
@@ -152,12 +153,12 @@ class TransactionJsonService {
         AggregateQuery query = toChartQuery(request, DataKind.GENERAL);
         long liveCaptureTime = clock.currentTimeMillis();
         List<PercentileAggregate> percentileAggregates =
-                transactionCommonService.getPercentileAggregates(agentRollupId, query, autoRefresh);
+                transactionCommonService.getPercentileAggregates(agentRollupId, query, autoRefresh).toCompletableFuture().get();
         if (percentileAggregates.isEmpty() && fallBackToLargestAggregates(query)) {
             // fall back to largest aggregates in case expiration settings have recently changed
             query = withLargestRollupLevel(query);
             percentileAggregates = transactionCommonService.getPercentileAggregates(agentRollupId,
-                    query, autoRefresh);
+                    query, autoRefresh).toCompletableFuture().get();
             if (!percentileAggregates.isEmpty() && ignoreFallBackData(query,
                     Iterables.getLast(percentileAggregates).captureTime())) {
                 // this is probably data from before the requested time period
@@ -193,12 +194,12 @@ class TransactionJsonService {
         AggregateQuery query = toChartQuery(request, DataKind.GENERAL);
         long liveCaptureTime = clock.currentTimeMillis();
         List<ThroughputAggregate> throughputAggregates =
-                transactionCommonService.getThroughputAggregates(agentRollupId, query, autoRefresh);
+                transactionCommonService.getThroughputAggregates(agentRollupId, query, autoRefresh).toCompletableFuture().get();
         if (throughputAggregates.isEmpty() && fallBackToLargestAggregates(query)) {
             // fall back to largest aggregates in case expiration settings have recently changed
             query = withLargestRollupLevel(query);
             throughputAggregates = transactionCommonService.getThroughputAggregates(agentRollupId,
-                    query, autoRefresh);
+                    query, autoRefresh).toCompletableFuture().get();
             if (!throughputAggregates.isEmpty() && ignoreFallBackData(query,
                     Iterables.getLast(throughputAggregates).captureTime())) {
                 // this is probably data from before the requested time period
@@ -239,12 +240,12 @@ class TransactionJsonService {
             @BindRequest TransactionDataRequest request) throws Exception {
         AggregateQuery query = toQuery(request, DataKind.QUERY);
         QueryCollector queryCollector =
-                transactionCommonService.getMergedQueries(agentRollupId, query);
+                transactionCommonService.getMergedQueries(agentRollupId, query).toCompletableFuture().join();
         List<MutableQuery> queries = queryCollector.getSortedAndTruncatedQueries();
         if (queries.isEmpty() && fallBackToLargestAggregates(query)) {
             // fall back to largest aggregates in case expiration settings have recently changed
             query = withLargestRollupLevel(query);
-            queryCollector = transactionCommonService.getMergedQueries(agentRollupId, query);
+            queryCollector = transactionCommonService.getMergedQueries(agentRollupId, query).toCompletableFuture().join();
             queries = queryCollector.getSortedAndTruncatedQueries();
             if (ignoreFallBackData(query, queryCollector.getLastCaptureTime())) {
                 // this is probably data from before the requested time period
@@ -262,7 +263,7 @@ class TransactionJsonService {
                     .totalRows(loopQuery.hasTotalRows() ? loopQuery.getTotalRows() : null)
                     .build());
         }
-        if (queryList.isEmpty() && aggregateRepository.shouldHaveQueries(agentRollupId, query)) {
+        if (queryList.isEmpty() && aggregateRepository.shouldHaveQueries(agentRollupId, query).toCompletableFuture().get()) {
             return "{\"overwritten\":true}";
         }
         StringBuilder sb = new StringBuilder();
@@ -279,7 +280,7 @@ class TransactionJsonService {
     String getQueryText(@BindAgentRollupId String agentRollupId,
             @BindRequest FullQueryTextRequest request) throws Exception {
         String fullQueryText =
-                transactionCommonService.readFullQueryText(agentRollupId, request.fullTextSha1());
+                transactionCommonService.readFullQueryText(agentRollupId, request.fullTextSha1(), CassandraProfile.web).toCompletableFuture().get();
         StringBuilder sb = new StringBuilder();
         JsonGenerator jg = mapper.getFactory().createGenerator(CharStreams.asWriter(sb));
         try {
@@ -301,14 +302,14 @@ class TransactionJsonService {
             @BindRequest TransactionDataRequest request) throws Exception {
         AggregateQuery query = toQuery(request, DataKind.SERVICE_CALL);
         ServiceCallCollector serviceCallCollector =
-                transactionCommonService.getMergedServiceCalls(agentRollupId, query);
+                transactionCommonService.getMergedServiceCalls(agentRollupId, query).toCompletableFuture().join();
         List<MutableServiceCall> serviceCalls =
                 serviceCallCollector.getSortedAndTruncatedServiceCalls();
         if (serviceCalls.isEmpty() && fallBackToLargestAggregates(query)) {
             // fall back to largest aggregates in case expiration settings have recently changed
             query = withLargestRollupLevel(query);
             serviceCallCollector =
-                    transactionCommonService.getMergedServiceCalls(agentRollupId, query);
+                    transactionCommonService.getMergedServiceCalls(agentRollupId, query).toCompletableFuture().join();
             serviceCalls = serviceCallCollector.getSortedAndTruncatedServiceCalls();
             if (ignoreFallBackData(query, serviceCallCollector.getLastCaptureTime())) {
                 // this is probably data from before the requested time period
@@ -332,7 +333,7 @@ class TransactionJsonService {
             }
         });
         if (serviceCallList.isEmpty()
-                && aggregateRepository.shouldHaveServiceCalls(agentRollupId, query)) {
+                && aggregateRepository.shouldHaveServiceCalls(agentRollupId, query).toCompletableFuture().get()) {
             return "{\"overwritten\":true}";
         }
         StringBuilder sb = new StringBuilder();
@@ -351,14 +352,16 @@ class TransactionJsonService {
         AggregateQuery query = toQuery(request, DataKind.PROFILE);
         ProfileCollector profileCollector =
                 transactionCommonService.getMergedProfile(agentRollupId, query, request.auxiliary(),
-                        request.include(), request.exclude(), request.truncateBranchPercentage());
+                        request.include(), request.exclude(), request.truncateBranchPercentage())
+                        .toCompletableFuture().join();
         MutableProfile profile = profileCollector.getProfile();
         if (profile.isEmpty() && fallBackToLargestAggregates(query)) {
             // fall back to largest aggregates in case expiration settings have recently changed
             query = withLargestRollupLevel(query);
             profileCollector = transactionCommonService.getMergedProfile(agentRollupId, query,
                     request.auxiliary(), request.include(), request.exclude(),
-                    request.truncateBranchPercentage());
+                    request.truncateBranchPercentage())
+                    .toCompletableFuture().join();
             profile = profileCollector.getProfile();
             if (ignoreFallBackData(query, profileCollector.getLastCaptureTime())) {
                 // this is probably data from before the requested time period
@@ -377,7 +380,8 @@ class TransactionJsonService {
                 // return and display aux profile instead
                 profileCollector = transactionCommonService.getMergedProfile(agentRollupId, query,
                         true, request.include(), request.exclude(),
-                        request.truncateBranchPercentage());
+                        request.truncateBranchPercentage())
+                        .toCompletableFuture().join();
                 profile = profileCollector.getProfile();
                 if (profile.isEmpty() && fallBackToLargestAggregates(query)) {
                     // fall back to largest aggregates in case expiration settings have recently
@@ -385,7 +389,8 @@ class TransactionJsonService {
                     query = withLargestRollupLevel(query);
                     profileCollector = transactionCommonService.getMergedProfile(agentRollupId,
                             query, request.auxiliary(), request.include(), request.exclude(),
-                            request.truncateBranchPercentage());
+                            request.truncateBranchPercentage())
+                            .toCompletableFuture().join();
                     profile = profileCollector.getProfile();
                     if (ignoreFallBackData(query, profileCollector.getLastCaptureTime())) {
                         // this is probably data from before the requested time period
@@ -430,13 +435,13 @@ class TransactionJsonService {
                         DataKind.GENERAL))
                 .build();
         OverallSummaryCollector overallSummaryCollector =
-                transactionCommonService.readOverallSummary(agentRollupId, query, autoRefresh);
+                transactionCommonService.readOverallSummary(agentRollupId, query, autoRefresh).toCompletableFuture().join();
         OverallSummary overallSummary = overallSummaryCollector.getOverallSummary();
         if (overallSummary.transactionCount() == 0 && fallBackToLargestAggregate(query)) {
             // fall back to largest aggregates in case expiration settings have recently changed
             query = withLargestRollupLevel(query);
             overallSummaryCollector =
-                    transactionCommonService.readOverallSummary(agentRollupId, query, autoRefresh);
+                    transactionCommonService.readOverallSummary(agentRollupId, query, autoRefresh).toCompletableFuture().join();
             overallSummary = overallSummaryCollector.getOverallSummary();
             if (ignoreFallBackData(query, overallSummaryCollector.getLastCaptureTime())) {
                 // this is probably data from before the requested time period
@@ -452,7 +457,7 @@ class TransactionJsonService {
         }
         Result<TransactionNameSummary> queryResult = transactionCommonService
                 .readTransactionNameSummaries(agentRollupId, query, request.sortOrder(),
-                        request.limit(), autoRefresh);
+                        request.limit(), autoRefresh, CassandraProfile.web).toCompletableFuture().join();
         StringBuilder sb = new StringBuilder();
         JsonGenerator jg = mapper.getFactory().createGenerator(CharStreams.asWriter(sb));
         try {
@@ -473,14 +478,16 @@ class TransactionJsonService {
         AggregateQuery query = toQuery(request, DataKind.PROFILE);
         ProfileCollector profileCollector =
                 transactionCommonService.getMergedProfile(agentRollupId, query, request.auxiliary(),
-                        request.include(), request.exclude(), request.truncateBranchPercentage());
+                        request.include(), request.exclude(), request.truncateBranchPercentage())
+                        .toCompletableFuture().join();
         MutableProfile profile = profileCollector.getProfile();
         if (profile.isEmpty() && fallBackToLargestAggregates(query)) {
             // fall back to largest aggregates in case expiration settings have recently changed
             query = withLargestRollupLevel(query);
             profileCollector = transactionCommonService.getMergedProfile(agentRollupId, query,
                     request.auxiliary(), request.include(), request.exclude(),
-                    request.truncateBranchPercentage());
+                    request.truncateBranchPercentage())
+                    .toCompletableFuture().join();
             profile = profileCollector.getProfile();
             if (ignoreFallBackData(query, profileCollector.getLastCaptureTime())) {
                 // this is probably data from before the requested time period
@@ -582,11 +589,11 @@ class TransactionJsonService {
     private boolean isProfileOverwritten(TransactionProfileRequest request, String agentRollupId,
             AggregateQuery query) throws Exception {
         if (request.auxiliary()
-                && aggregateRepository.shouldHaveAuxThreadProfile(agentRollupId, query)) {
+                && aggregateRepository.shouldHaveAuxThreadProfile(agentRollupId, query).toCompletableFuture().get()) {
             return true;
         }
         if (!request.auxiliary()
-                && aggregateRepository.shouldHaveMainThreadProfile(agentRollupId, query)) {
+                && aggregateRepository.shouldHaveMainThreadProfile(agentRollupId, query).toCompletableFuture().get()) {
             return true;
         }
         return false;
@@ -718,7 +725,10 @@ class TransactionJsonService {
         DataSeriesHelper dataSeriesHelper =
                 new DataSeriesHelper(liveCaptureTime, dataPointIntervalMillis);
         final int topX = 5;
-        List<String> timerNames = getTopTimerNames(stackedPoints, topX + 1);
+        // Rank top timers using the same capture-time window as the breakdown table, so out-of-range
+        // slope points (fetched only for chart edge sloping) do not skew the series selection.
+        List<String> timerNames = getTopTimerNames(stackedPoints, topX + 1, request.from(),
+                request.to());
         List<DataSeries> dataSeriesList = Lists.newArrayList();
         for (int i = 0; i < Math.min(timerNames.size(), topX); i++) {
             dataSeriesList.add(new DataSeries(timerNames.get(i)));
@@ -790,11 +800,15 @@ class TransactionJsonService {
     }
 
     // calculate top 5 timers
-    private static List<String> getTopTimerNames(List<StackedPoint> stackedPoints, int topX) {
+    private static List<String> getTopTimerNames(List<StackedPoint> stackedPoints, int topX,
+            long from, long to) {
         MutableDoubleMap<String> timerTotals = new MutableDoubleMap<String>();
         for (StackedPoint stackedPoint : stackedPoints) {
-            for (Map.Entry<String, MutableDouble> entry : stackedPoint.getStackedTimers()
-                    .entrySet()) {
+            if (!StackedTimerTotals.captureTimeInMergedRange(
+                    stackedPoint.getOverviewAggregate().captureTime(), from, to)) {
+                continue;
+            }
+            for (Map.Entry<String, MutableDouble> entry : stackedPoint.getStackedTimers().entrySet()) {
                 timerTotals.add(entry.getKey(), entry.getValue().doubleValue());
             }
         }
@@ -802,8 +816,7 @@ class TransactionJsonService {
                 Ordering.natural()
                         .onResultOf(new Function<Map.Entry<String, MutableDouble>, Double>() {
                             @Override
-                            public Double apply(
-                                    Map. /*@Nullable*/ Entry<String, MutableDouble> entry) {
+                            public Double apply(Map. /*@Nullable*/ Entry<String, MutableDouble> entry) {
                                 checkNotNull(entry);
                                 return entry.getValue().doubleValue();
                             }
@@ -825,15 +838,7 @@ class TransactionJsonService {
         private final MutableDoubleMap<String> stackedTimers;
 
         private static StackedPoint create(OverviewAggregate overviewAggregate) {
-            MutableDoubleMap<String> stackedTimers = new MutableDoubleMap<String>();
-            for (Aggregate.Timer rootTimer : overviewAggregate.mainThreadRootTimers()) {
-                // skip root timers
-                for (Aggregate.Timer topLevelTimer : rootTimer.getChildTimerList()) {
-                    // traverse tree starting at top-level (under root) timers
-                    addToStackedTimer(topLevelTimer, stackedTimers);
-                }
-            }
-            return new StackedPoint(overviewAggregate, stackedTimers);
+            return new StackedPoint(overviewAggregate, StackedTimerTotals.create(overviewAggregate));
         }
 
         private StackedPoint(OverviewAggregate overviewAggregate,
@@ -849,24 +854,13 @@ class TransactionJsonService {
         private MutableDoubleMap<String> getStackedTimers() {
             return stackedTimers;
         }
-
-        private static void addToStackedTimer(Aggregate.Timer timer,
-                MutableDoubleMap<String> stackedTimers) {
-            double totalNestedNanos = 0;
-            for (Aggregate.Timer childTimer : timer.getChildTimerList()) {
-                totalNestedNanos += childTimer.getTotalNanos();
-                addToStackedTimer(childTimer, stackedTimers);
-            }
-            String timerName = timer.getName();
-            stackedTimers.add(timerName, timer.getTotalNanos() - totalNestedNanos);
-        }
     }
 
     // by using MutableDouble, two operations (get/put) are not required for each increment,
     // instead just a single get is needed (except for first delta)
     @SuppressWarnings("serial")
-    private static class MutableDoubleMap<K> extends HashMap<K, MutableDouble> {
-        private void add(K key, double delta) {
+    static class MutableDoubleMap<K> extends java.util.HashMap<K, MutableDouble> {
+        void add(K key, double delta) {
             MutableDouble existing = get(key);
             if (existing == null) {
                 put(key, new MutableDouble(delta));
@@ -876,12 +870,12 @@ class TransactionJsonService {
         }
     }
 
-    private static class MutableDouble {
+    static class MutableDouble {
         private double value;
         private MutableDouble(double value) {
             this.value = value;
         }
-        private double doubleValue() {
+        double doubleValue() {
             return value;
         }
     }

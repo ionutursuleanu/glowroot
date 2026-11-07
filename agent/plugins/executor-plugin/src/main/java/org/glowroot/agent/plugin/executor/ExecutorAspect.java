@@ -18,6 +18,7 @@ package org.glowroot.agent.plugin.executor;
 import java.util.Collection;
 import java.util.TimerTask;
 import java.util.concurrent.Callable;
+import java.util.concurrent.ForkJoinTask;
 import java.util.concurrent.Future;
 import java.util.concurrent.atomic.AtomicBoolean;
 
@@ -117,13 +118,24 @@ public class ExecutorAspect {
     public static class ForkJoinPoolAdvice {
         @IsEnabled
         public static boolean isEnabled(@BindParameter Object forkJoinTask) {
-            // this class may have been loaded before class file transformer was added to jvm
-            return forkJoinTask instanceof RunnableEtcMixin;
+            return forkJoinTask instanceof RunnableEtcMixin
+                    // for ForkJoinTask subclasses loaded before the transformer (e.g. Java 25+),
+                    // wrap if it's a Runnable so exec() can be instrumented via GlowrootForkJoinTask
+                    || forkJoinTask instanceof Runnable;
         }
         @OnBefore
-        public static void onBefore(ThreadContext context, @BindParameter Object forkJoinTask) {
-            // cast is safe because of isEnabled() check above
-            onBeforeCommon(context, (RunnableEtcMixin) forkJoinTask);
+        @SuppressWarnings("unchecked")
+        public static void onBefore(ThreadContext context,
+                @BindParameter ParameterHolder<ForkJoinTask<?>> forkJoinTaskHolder) {
+            ForkJoinTask<?> forkJoinTask = forkJoinTaskHolder.get();
+            if (forkJoinTask instanceof RunnableEtcMixin) {
+                onBeforeCommon(context, (RunnableEtcMixin) forkJoinTask);
+            } else if (forkJoinTask instanceof Runnable) {
+                // wrap non-mixin Runnable ForkJoinTask (e.g. AdaptedCallable, AdaptedRunnable
+                // in Java 25+ that are loaded before the class file transformer)
+                forkJoinTaskHolder.set(new GlowrootForkJoinTask<Object>(
+                        (ForkJoinTask<Object>) forkJoinTask, context.createAuxThreadContext()));
+            }
         }
     }
 
@@ -327,7 +339,7 @@ public class ExecutorAspect {
             methodName = "doStart", methodParameterTypes = {}, nestingGroup = "executor-execute")
     public static class JettyDoStartAdvice {}
 
-    @Pointcut(className = "javax.servlet.AsyncContext", methodName = "start",
+    @Pointcut(className = "javax.servlet.AsyncContext|jakarta.servlet.AsyncContext", methodName = "start",
             methodParameterTypes = {"java.lang.Runnable"})
     public static class StartAdvice {
         @OnBefore
@@ -465,6 +477,11 @@ public class ExecutorAspect {
             methodName = "call", methodParameterTypes = {}, nestingGroup = "executor-run")
     public static class CallableWrapperAdvice {}
 
+    // need to clear out the "executor-execute" nesting group
+    @Pointcut(className = "org.glowroot.agent.plugin.executor.GlowrootForkJoinTask",
+            methodName = "exec", methodParameterTypes = {}, nestingGroup = "executor-run")
+    public static class GlowrootForkJoinTaskExecAdvice {}
+
     // the nesting group only starts applying once auxiliary thread context is started (it does not
     // apply to OptionalThreadContext that miss)
     @Pointcut(className = "java.util.concurrent.ForkJoinTask|akka.jsr166y.ForkJoinTask"
@@ -512,7 +529,7 @@ public class ExecutorAspect {
             return;
         } else if (runnable instanceof RunnableEtcMixin) {
             onBeforeCommon(context, (RunnableEtcMixin) runnable);
-        } else if (runnable != null && runnable.getClass().getName().contains("$$Lambda$")) {
+        } else if (isLambda(runnable)) {
             wrapRunnable(runnableHolder, context);
         }
     }
@@ -522,7 +539,7 @@ public class ExecutorAspect {
         Callable<T> callable = callableHolder.get();
         if (callable instanceof RunnableEtcMixin) {
             onBeforeCommon(context, (RunnableEtcMixin) callable);
-        } else if (callable != null && callable.getClass().getName().contains("$$Lambda$")) {
+        } else if (isLambda(callable)) {
             wrapCallable(callableHolder, context);
         }
     }
@@ -540,12 +557,20 @@ public class ExecutorAspect {
             if (runnable instanceof RunnableEtcMixin) {
                 onBeforeCommon(context, (RunnableEtcMixin) runnable);
                 return true;
-            } else if (runnable != null && runnable.getClass().getName().contains("$$Lambda$")) {
+            } else if (isLambda(runnable)) {
                 wrapRunnable(runnableHolder, context);
                 return true;
             }
         }
         return false;
+    }
+
+    private static boolean isLambda(Object object) {
+        if (object == null) {
+            return false;
+        }
+        String name = object.getClass().getName();
+        return name.contains("$$Lambda/") /* jdk21+ */ || name.contains("$$Lambda$"); /* jdk8-20 */
     }
 
     private static void onBeforeCommon(ThreadContext context, RunnableEtcMixin runnableEtc) {

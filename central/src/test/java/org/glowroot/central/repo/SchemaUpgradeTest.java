@@ -15,11 +15,11 @@
  */
 package org.glowroot.central.repo;
 
-import java.util.Set;
-
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Ordering;
 import org.junit.jupiter.api.Test;
+
+import java.util.Set;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -58,5 +58,19 @@ public class SchemaUpgradeTest {
         assertThat(Ordering.natural().sortedCopy(permissions)).containsExactly(
                 "agent:abc,mno,xyz:error", "agent:abc,mno,xyz:jvm:environment",
                 "agent:abc,mno,xyz:jvm:gauges", "agent:abc,mno,xyz:transaction");
+    }
+
+    @Test
+    public void shouldAddSyntheticAndAlertFromTransactionPermission() {
+        Set<String> added = SchemaUpgrade.upgradePermissions2(
+                ImmutableSet.of("agent:abc:transaction", "admin:view"));
+        assertThat(Ordering.natural().sortedCopy(added)).containsExactly(
+                "agent:abc:alert", "agent:abc:syntheticMonitor");
+    }
+
+    @Test
+    public void shouldNotUpgradePermissionsWhenNoViewPermission() {
+        assertThat(SchemaUpgrade.upgradePermissions(ImmutableSet.of("agent:abc:transaction")))
+                .isNull();
     }
 }

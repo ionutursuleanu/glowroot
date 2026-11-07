@@ -15,41 +15,30 @@
  */
 package org.glowroot.ui;
 
-import java.util.List;
-
 import com.google.common.base.Function;
 import com.google.common.collect.Iterables;
 import com.google.common.collect.Lists;
-import org.checkerframework.checker.nullness.qual.Nullable;
-
 import org.glowroot.common.ConfigDefaults;
 import org.glowroot.common.live.ImmutableAggregateQuery;
 import org.glowroot.common.live.ImmutableSummaryQuery;
 import org.glowroot.common.live.ImmutableThroughputAggregate;
 import org.glowroot.common.live.LiveAggregateRepository;
-import org.glowroot.common.live.LiveAggregateRepository.AggregateQuery;
-import org.glowroot.common.live.LiveAggregateRepository.LiveResult;
-import org.glowroot.common.live.LiveAggregateRepository.OverviewAggregate;
-import org.glowroot.common.live.LiveAggregateRepository.PercentileAggregate;
-import org.glowroot.common.live.LiveAggregateRepository.SummaryQuery;
-import org.glowroot.common.live.LiveAggregateRepository.ThroughputAggregate;
-import org.glowroot.common.model.MutableProfile;
-import org.glowroot.common.model.OverallSummaryCollector;
-import org.glowroot.common.model.ProfileCollector;
-import org.glowroot.common.model.QueryCollector;
-import org.glowroot.common.model.Result;
-import org.glowroot.common.model.ServiceCallCollector;
-import org.glowroot.common.model.TransactionNameSummaryCollector;
+import org.glowroot.common.live.LiveAggregateRepository.*;
+import org.glowroot.common.model.*;
 import org.glowroot.common.model.TransactionNameSummaryCollector.SummarySortOrder;
 import org.glowroot.common.model.TransactionNameSummaryCollector.TransactionNameSummary;
 import org.glowroot.common.util.CaptureTimes;
 import org.glowroot.common.util.Clock;
 import org.glowroot.common2.repo.AggregateRepository;
+import org.glowroot.common2.repo.CassandraProfile;
 import org.glowroot.common2.repo.ConfigRepository;
-import org.glowroot.common2.repo.ConfigRepository.AgentConfigNotFoundException;
 import org.glowroot.common2.repo.MutableAggregate;
-import org.glowroot.wire.api.model.AgentConfigOuterClass.AgentConfig.AdvancedConfig;
 import org.glowroot.wire.api.model.AggregateOuterClass.Aggregate;
+
+import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.atomic.AtomicLong;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 
@@ -61,8 +50,8 @@ class TransactionCommonService {
     private final Clock clock;
 
     TransactionCommonService(AggregateRepository aggregateRepository,
-            LiveAggregateRepository liveAggregateRepository, ConfigRepository configRepository,
-            Clock clock) {
+                             LiveAggregateRepository liveAggregateRepository, ConfigRepository configRepository,
+                             Clock clock) {
         this.aggregateRepository = aggregateRepository;
         this.liveAggregateRepository = liveAggregateRepository;
         this.configRepository = configRepository;
@@ -70,10 +59,9 @@ class TransactionCommonService {
     }
 
     // query.from() is non-inclusive
-    OverallSummaryCollector readOverallSummary(String agentRollupId, SummaryQuery query,
-            boolean autoRefresh) throws Exception {
+    CompletionStage<OverallSummaryCollector> readOverallSummary(String agentRollupId, SummaryQuery query,
+                                                                boolean autoRefresh) throws Exception {
         OverallSummaryCollector collector = new OverallSummaryCollector();
-        long revisedFrom = query.from();
         long revisedTo;
         if (autoRefresh) {
             revisedTo = query.to();
@@ -81,29 +69,42 @@ class TransactionCommonService {
             revisedTo =
                     liveAggregateRepository.mergeInOverallSummary(agentRollupId, query, collector);
         }
+        AtomicLong revisedFrom = new AtomicLong(query.from());
+        CompletionStage<Void> stage = CompletableFuture.completedFuture(null);
         for (int rollupLevel = query.rollupLevel(); rollupLevel >= 0; rollupLevel--) {
-            SummaryQuery revisedQuery = ImmutableSummaryQuery.builder()
-                    .copyFrom(query)
-                    .from(revisedFrom)
-                    .to(revisedTo)
-                    .rollupLevel(rollupLevel)
-                    .build();
-            aggregateRepository.mergeOverallSummaryInto(agentRollupId, revisedQuery, collector);
-            long lastRolledUpTime = collector.getLastCaptureTime();
-            revisedFrom = Math.max(revisedFrom, lastRolledUpTime + 1);
-            if (revisedFrom > revisedTo) {
-                break;
-            }
+            final int currentRollupLevel = rollupLevel;
+            stage = stage.thenCompose(ignored -> {
+                long from = revisedFrom.get();
+                if (from > revisedTo) {
+                    return CompletableFuture.completedFuture(null);
+                }
+                SummaryQuery revisedQuery = ImmutableSummaryQuery.builder()
+                        .copyFrom(query)
+                        .from(from)
+                        .to(revisedTo)
+                        .rollupLevel(currentRollupLevel)
+                        .build();
+                try {
+                    return aggregateRepository.mergeOverallSummaryInto(agentRollupId, revisedQuery, collector, CassandraProfile.web)
+                            .thenAccept(v -> {
+                                long lastRolledUpTime = collector.getLastCaptureTime();
+                                revisedFrom.set(Math.max(from, lastRolledUpTime + 1));
+                            });
+                } catch (Exception e) {
+                    CompletableFuture<Void> failedFuture = new CompletableFuture<>();
+                    failedFuture.completeExceptionally(e);
+                    return failedFuture;
+                }
+            });
         }
-        return collector;
+        return stage.thenApply(ignored -> collector);
     }
 
     // query.from() is non-inclusive
-    Result<TransactionNameSummary> readTransactionNameSummaries(String agentRollupId,
-            SummaryQuery query, SummarySortOrder sortOrder, int limit, boolean autoRefresh)
+    CompletionStage<Result<TransactionNameSummary>> readTransactionNameSummaries(String agentRollupId,
+                                                                                 SummaryQuery query, SummarySortOrder sortOrder, int limit, boolean autoRefresh, CassandraProfile profile)
             throws Exception {
         TransactionNameSummaryCollector collector = new TransactionNameSummaryCollector();
-        long revisedFrom = query.from();
         long revisedTo;
         if (autoRefresh) {
             revisedTo = query.to();
@@ -112,27 +113,41 @@ class TransactionCommonService {
                     liveAggregateRepository.mergeInTransactionNameSummaries(agentRollupId, query,
                             collector);
         }
+        AtomicLong revisedFrom = new AtomicLong(query.from());
+        CompletionStage<Void> stage = CompletableFuture.completedFuture(null);
         for (int rollupLevel = query.rollupLevel(); rollupLevel >= 0; rollupLevel--) {
-            SummaryQuery revisedQuery = ImmutableSummaryQuery.builder()
-                    .copyFrom(query)
-                    .from(revisedFrom)
-                    .to(revisedTo)
-                    .rollupLevel(rollupLevel)
-                    .build();
-            aggregateRepository.mergeTransactionNameSummariesInto(agentRollupId, revisedQuery,
-                    sortOrder, limit, collector);
-            long lastRolledUpTime = collector.getLastCaptureTime();
-            revisedFrom = Math.max(revisedFrom, lastRolledUpTime + 1);
-            if (revisedFrom > revisedTo) {
-                break;
-            }
+            final int currentRollupLevel = rollupLevel;
+            stage = stage.thenCompose(ignored -> {
+                long from = revisedFrom.get();
+                if (from > revisedTo) {
+                    return CompletableFuture.completedFuture(null);
+                }
+                SummaryQuery revisedQuery = ImmutableSummaryQuery.builder()
+                        .copyFrom(query)
+                        .from(from)
+                        .to(revisedTo)
+                        .rollupLevel(currentRollupLevel)
+                        .build();
+                try {
+                    return aggregateRepository.mergeTransactionNameSummariesInto(agentRollupId, revisedQuery,
+                            sortOrder, limit, collector, profile)
+                            .thenAccept(v -> {
+                                long lastRolledUpTime = collector.getLastCaptureTime();
+                                revisedFrom.set(Math.max(from, lastRolledUpTime + 1));
+                            });
+                } catch (Exception e) {
+                    CompletableFuture<Void> failedFuture = new CompletableFuture<>();
+                    failedFuture.completeExceptionally(e);
+                    return failedFuture;
+                }
+            });
         }
-        return collector.getResult(sortOrder, limit);
+        return stage.thenApply(ignored -> collector.getResult(sortOrder, limit));
     }
 
     // query.from() is INCLUSIVE
-    List<OverviewAggregate> getOverviewAggregates(String agentRollupId, AggregateQuery query,
-            boolean autoRefresh) throws Exception {
+    CompletionStage<List<OverviewAggregate>> getOverviewAggregates(String agentRollupId, AggregateQuery query,
+                                                                   boolean autoRefresh) {
         LiveResult<OverviewAggregate> liveResult;
         long revisedTo;
         if (autoRefresh) {
@@ -146,50 +161,56 @@ class TransactionCommonService {
                 .copyFrom(query)
                 .to(revisedTo)
                 .build();
-        List<OverviewAggregate> aggregates =
-                aggregateRepository.readOverviewAggregates(agentRollupId, revisedQuery);
-        if (revisedQuery.rollupLevel() == 0) {
-            if (liveResult != null) {
-                aggregates = Lists.newArrayList(aggregates);
-                aggregates.addAll(liveResult.get());
+        return aggregateRepository.readOverviewAggregates(agentRollupId, revisedQuery, CassandraProfile.web).thenCompose(aggregates -> {
+            if (revisedQuery.rollupLevel() == 0) {
+                if (liveResult != null) {
+                    aggregates = Lists.newArrayList(aggregates);
+                    aggregates.addAll(liveResult.get());
+                }
+                return CompletableFuture.completedFuture(aggregates);
             }
-            return aggregates;
-        }
-        long nonRolledUpFrom = revisedQuery.from();
-        if (!aggregates.isEmpty()) {
-            nonRolledUpFrom = Iterables.getLast(aggregates).captureTime() + 1;
-        }
-        List<OverviewAggregate> orderedNonRolledUpAggregates = Lists.newArrayList();
-        if (nonRolledUpFrom <= revisedTo) {
-            orderedNonRolledUpAggregates.addAll(
-                    aggregateRepository.readOverviewAggregates(agentRollupId,
+            long nonRolledUpFrom = revisedQuery.from();
+            if (!aggregates.isEmpty()) {
+                nonRolledUpFrom = Iterables.getLast(aggregates).captureTime() + 1;
+            }
+            long finalNonRolledUpFrom = nonRolledUpFrom;
+            List<OverviewAggregate> finalAggregates = aggregates;
+            return CompletableFuture.completedFuture(null).thenCompose(ignored -> {
+                if (finalNonRolledUpFrom <= revisedTo) {
+                    return aggregateRepository.readOverviewAggregates(agentRollupId,
                             ImmutableAggregateQuery.builder()
                                     .copyFrom(revisedQuery)
-                                    .from(nonRolledUpFrom)
+                                    .from(finalNonRolledUpFrom)
                                     .rollupLevel(0)
-                                    .build()));
-        }
-        if (liveResult != null) {
-            orderedNonRolledUpAggregates.addAll(liveResult.get());
-        }
-        aggregates = Lists.newArrayList(aggregates);
-        long fixedIntervalMillis = configRepository.getRollupConfigs()
-                .get(revisedQuery.rollupLevel()).intervalMillis();
-        aggregates.addAll(rollUpOverviewAggregates(orderedNonRolledUpAggregates,
-                new RollupCaptureTimeFn(fixedIntervalMillis)));
-        if (aggregates.size() >= 2) {
-            long currentTime = clock.currentTimeMillis();
-            OverviewAggregate nextToLastAggregate = aggregates.get(aggregates.size() - 2);
-            if (currentTime - nextToLastAggregate.captureTime() < 60000) {
-                aggregates.remove(aggregates.size() - 1);
-            }
-        }
-        return aggregates;
+                                    .build(), CassandraProfile.web);
+                } else {
+                    return CompletableFuture.completedFuture(Lists.newArrayList());
+                }
+            }).thenApply(orderedNonRolledUpAggregates -> {
+                if (liveResult != null) {
+                    orderedNonRolledUpAggregates = Lists.newArrayList(orderedNonRolledUpAggregates);
+                    orderedNonRolledUpAggregates.addAll(liveResult.get());
+                }
+                List<OverviewAggregate> aggregatesInner = Lists.newArrayList(finalAggregates);
+                long fixedIntervalMillis = configRepository.getRollupConfigs()
+                        .get(revisedQuery.rollupLevel()).intervalMillis();
+                aggregatesInner.addAll(rollUpOverviewAggregates(orderedNonRolledUpAggregates,
+                        new RollupCaptureTimeFn(fixedIntervalMillis)));
+                if (aggregatesInner.size() >= 2) {
+                    long currentTime = clock.currentTimeMillis();
+                    OverviewAggregate nextToLastAggregate = aggregatesInner.get(aggregatesInner.size() - 2);
+                    if (currentTime - nextToLastAggregate.captureTime() < 60000) {
+                        aggregatesInner.remove(aggregatesInner.size() - 1);
+                    }
+                }
+                return aggregatesInner;
+            });
+        });
     }
 
     // query.from() is INCLUSIVE
-    List<PercentileAggregate> getPercentileAggregates(String agentRollupId, AggregateQuery query,
-            boolean autoRefresh) throws Exception {
+    CompletionStage<List<PercentileAggregate>> getPercentileAggregates(String agentRollupId, AggregateQuery query,
+                                                                       boolean autoRefresh) {
         LiveResult<PercentileAggregate> liveResult;
         long revisedTo;
         if (autoRefresh) {
@@ -203,50 +224,56 @@ class TransactionCommonService {
                 .copyFrom(query)
                 .to(revisedTo)
                 .build();
-        List<PercentileAggregate> aggregates =
-                aggregateRepository.readPercentileAggregates(agentRollupId, revisedQuery);
-        if (revisedQuery.rollupLevel() == 0) {
-            if (liveResult != null) {
-                aggregates = Lists.newArrayList(aggregates);
-                aggregates.addAll(liveResult.get());
+        return aggregateRepository.readPercentileAggregates(agentRollupId, revisedQuery, CassandraProfile.web).thenCompose(aggregates -> {
+            if (revisedQuery.rollupLevel() == 0) {
+                if (liveResult != null) {
+                    aggregates = Lists.newArrayList(aggregates);
+                    aggregates.addAll(liveResult.get());
+                }
+                return CompletableFuture.completedFuture(aggregates);
             }
-            return aggregates;
-        }
-        long nonRolledUpFrom = revisedQuery.from();
-        if (!aggregates.isEmpty()) {
-            nonRolledUpFrom = Iterables.getLast(aggregates).captureTime() + 1;
-        }
-        List<PercentileAggregate> orderedNonRolledUpAggregates = Lists.newArrayList();
-        if (nonRolledUpFrom <= revisedTo) {
-            orderedNonRolledUpAggregates.addAll(
-                    aggregateRepository.readPercentileAggregates(agentRollupId,
+            long nonRolledUpFrom = revisedQuery.from();
+            if (!aggregates.isEmpty()) {
+                nonRolledUpFrom = Iterables.getLast(aggregates).captureTime() + 1;
+            }
+            long finalNonRolledUpFrom = nonRolledUpFrom;
+            List<PercentileAggregate> finalAggregates = aggregates;
+            return CompletableFuture.completedFuture(null).thenCompose(ignored -> {
+                if (finalNonRolledUpFrom <= revisedTo) {
+                    return aggregateRepository.readPercentileAggregates(agentRollupId,
                             ImmutableAggregateQuery.builder()
                                     .copyFrom(revisedQuery)
-                                    .from(nonRolledUpFrom)
+                                    .from(finalNonRolledUpFrom)
                                     .rollupLevel(0)
-                                    .build()));
-        }
-        if (liveResult != null) {
-            orderedNonRolledUpAggregates.addAll(liveResult.get());
-        }
-        aggregates = Lists.newArrayList(aggregates);
-        long fixedIntervalMillis = configRepository.getRollupConfigs()
-                .get(revisedQuery.rollupLevel()).intervalMillis();
-        aggregates.addAll(rollUpPercentileAggregates(orderedNonRolledUpAggregates,
-                new RollupCaptureTimeFn(fixedIntervalMillis)));
-        if (aggregates.size() >= 2) {
-            long currentTime = clock.currentTimeMillis();
-            PercentileAggregate nextToLastAggregate = aggregates.get(aggregates.size() - 2);
-            if (currentTime - nextToLastAggregate.captureTime() < 60000) {
-                aggregates.remove(aggregates.size() - 1);
-            }
-        }
-        return aggregates;
+                                    .build(), CassandraProfile.web);
+                } else {
+                    return CompletableFuture.completedFuture(Lists.newArrayList());
+                }
+            }).thenApply(orderedNonRolledUpAggregates -> {
+                if (liveResult != null) {
+                    orderedNonRolledUpAggregates = Lists.newArrayList(orderedNonRolledUpAggregates);
+                    orderedNonRolledUpAggregates.addAll(liveResult.get());
+                }
+                List<PercentileAggregate> aggregatesInner = Lists.newArrayList(finalAggregates);
+                long fixedIntervalMillis = configRepository.getRollupConfigs()
+                        .get(revisedQuery.rollupLevel()).intervalMillis();
+                aggregatesInner.addAll(rollUpPercentileAggregates(orderedNonRolledUpAggregates,
+                        new RollupCaptureTimeFn(fixedIntervalMillis)));
+                if (aggregatesInner.size() >= 2) {
+                    long currentTime = clock.currentTimeMillis();
+                    PercentileAggregate nextToLastAggregate = aggregatesInner.get(aggregatesInner.size() - 2);
+                    if (currentTime - nextToLastAggregate.captureTime() < 60000) {
+                        aggregatesInner.remove(aggregatesInner.size() - 1);
+                    }
+                }
+                return aggregatesInner;
+            });
+        });
     }
 
     // query.from() is INCLUSIVE
-    List<ThroughputAggregate> getThroughputAggregates(String agentRollupId, AggregateQuery query,
-            boolean autoRefresh) throws Exception {
+    CompletionStage<List<ThroughputAggregate>> getThroughputAggregates(String agentRollupId, AggregateQuery query,
+                                                                       boolean autoRefresh) throws Exception {
         LiveResult<ThroughputAggregate> liveResult;
         long revisedTo;
         if (autoRefresh) {
@@ -260,125 +287,146 @@ class TransactionCommonService {
                 .copyFrom(query)
                 .to(revisedTo)
                 .build();
-        List<ThroughputAggregate> aggregates =
-                aggregateRepository.readThroughputAggregates(agentRollupId, revisedQuery);
-        if (revisedQuery.rollupLevel() == 0) {
-            if (liveResult != null) {
-                aggregates = Lists.newArrayList(aggregates);
-                aggregates.addAll(liveResult.get());
+        return aggregateRepository.readThroughputAggregates(agentRollupId, revisedQuery, CassandraProfile.web).thenCompose(aggregates -> {
+            if (revisedQuery.rollupLevel() == 0) {
+                if (liveResult != null) {
+                    aggregates = Lists.newArrayList(aggregates);
+                    aggregates.addAll(liveResult.get());
+                }
+                return CompletableFuture.completedFuture(aggregates);
             }
-            return aggregates;
-        }
-        long nonRolledUpFrom = revisedQuery.from();
-        if (!aggregates.isEmpty()) {
-            nonRolledUpFrom = Iterables.getLast(aggregates).captureTime() + 1;
-        }
-        List<ThroughputAggregate> orderedNonRolledUpAggregates = Lists.newArrayList();
-        if (nonRolledUpFrom <= revisedTo) {
-            orderedNonRolledUpAggregates.addAll(aggregateRepository
-                    .readThroughputAggregates(agentRollupId,
-                            ImmutableAggregateQuery.builder()
-                                    .copyFrom(revisedQuery)
-                                    .from(nonRolledUpFrom)
-                                    .rollupLevel(0)
-                                    .build()));
-        }
-        if (liveResult != null) {
-            orderedNonRolledUpAggregates.addAll(liveResult.get());
-        }
-        aggregates = Lists.newArrayList(aggregates);
-        long fixedIntervalMillis = configRepository.getRollupConfigs()
-                .get(revisedQuery.rollupLevel()).intervalMillis();
-        aggregates.addAll(rollUpThroughputAggregates(orderedNonRolledUpAggregates,
-                new RollupCaptureTimeFn(fixedIntervalMillis)));
-        if (aggregates.size() >= 2) {
-            long currentTime = clock.currentTimeMillis();
-            ThroughputAggregate nextToLastAggregate = aggregates.get(aggregates.size() - 2);
-            if (currentTime - nextToLastAggregate.captureTime() < 60000) {
-                aggregates.remove(aggregates.size() - 1);
+            long nonRolledUpFrom = revisedQuery.from();
+            if (!aggregates.isEmpty()) {
+                nonRolledUpFrom = Iterables.getLast(aggregates).captureTime() + 1;
             }
-        }
-        return aggregates;
+            long finalNonRolledUpFrom = nonRolledUpFrom;
+            List<ThroughputAggregate> finalAggregates = aggregates;
+            return CompletableFuture.completedFuture(null).thenCompose(ignored -> {
+                if (finalNonRolledUpFrom <= revisedTo) {
+                    return aggregateRepository
+                            .readThroughputAggregates(agentRollupId,
+                                    ImmutableAggregateQuery.builder()
+                                            .copyFrom(revisedQuery)
+                                            .from(finalNonRolledUpFrom)
+                                            .rollupLevel(0)
+                                            .build(), CassandraProfile.web);
+                }
+                return CompletableFuture.completedFuture(Lists.newArrayList());
+            }).thenApply(orderedNonRolledUpAggregates -> {
+                if (liveResult != null) {
+                    orderedNonRolledUpAggregates = Lists.newArrayList(orderedNonRolledUpAggregates);
+                    orderedNonRolledUpAggregates.addAll(liveResult.get());
+                }
+                List<ThroughputAggregate> aggregatesInner = Lists.newArrayList(finalAggregates);
+                long fixedIntervalMillis = configRepository.getRollupConfigs()
+                        .get(revisedQuery.rollupLevel()).intervalMillis();
+                aggregatesInner.addAll(rollUpThroughputAggregates(orderedNonRolledUpAggregates,
+                        new RollupCaptureTimeFn(fixedIntervalMillis)));
+                if (aggregatesInner.size() >= 2) {
+                    long currentTime = clock.currentTimeMillis();
+                    ThroughputAggregate nextToLastAggregate = aggregatesInner.get(aggregatesInner.size() - 2);
+                    if (currentTime - nextToLastAggregate.captureTime() < 60000) {
+                        aggregatesInner.remove(aggregatesInner.size() - 1);
+                    }
+                }
+                return aggregatesInner;
+            });
+        });
     }
 
     // query.from() is non-inclusive
-    QueryCollector getMergedQueries(String agentRollupId, AggregateQuery query)
+    CompletionStage<QueryCollector> getMergedQueries(String agentRollupId, AggregateQuery query)
             throws Exception {
         int maxQueryAggregatesPerTransactionAggregate =
-                getMaxQueryAggregatesPerTransactionAggregate(agentRollupId);
+                getMaxQueryAggregatesPerTransactionAggregate(agentRollupId).toCompletableFuture().get();
         QueryCollector queryCollector =
                 new QueryCollector(maxQueryAggregatesPerTransactionAggregate);
-        long revisedFrom = query.from();
         long revisedTo =
                 liveAggregateRepository.mergeInQueries(agentRollupId, query, queryCollector);
+        AtomicLong revisedFrom = new AtomicLong(query.from());
+        CompletionStage<Void> stage = CompletableFuture.completedFuture(null);
         for (int rollupLevel = query.rollupLevel(); rollupLevel >= 0; rollupLevel--) {
-            AggregateQuery revisedQuery = ImmutableAggregateQuery.builder()
-                    .copyFrom(query)
-                    .from(revisedFrom)
-                    .to(revisedTo)
-                    .rollupLevel(rollupLevel)
-                    .build();
-            aggregateRepository.mergeQueriesInto(agentRollupId, revisedQuery, queryCollector);
-            long lastRolledUpTime = queryCollector.getLastCaptureTime();
-            revisedFrom = Math.max(revisedFrom, lastRolledUpTime + 1);
-            if (revisedFrom > revisedTo) {
-                break;
-            }
+            final int currentRollupLevel = rollupLevel;
+            stage = stage.thenCompose(ignored -> {
+                long from = revisedFrom.get();
+                if (from > revisedTo) {
+                    return CompletableFuture.completedFuture(null);
+                }
+                AggregateQuery revisedQuery = ImmutableAggregateQuery.builder()
+                        .copyFrom(query)
+                        .from(from)
+                        .to(revisedTo)
+                        .rollupLevel(currentRollupLevel)
+                        .build();
+                return aggregateRepository.mergeQueriesInto(agentRollupId, revisedQuery, queryCollector, CassandraProfile.web)
+                        .thenAccept(v -> {
+                            long lastRolledUpTime = queryCollector.getLastCaptureTime();
+                            revisedFrom.set(Math.max(from, lastRolledUpTime + 1));
+                        });
+            });
         }
-        return queryCollector;
+        return stage.thenApply(ignored -> queryCollector);
     }
 
     // query.from() is non-inclusive
-    ServiceCallCollector getMergedServiceCalls(String agentRollupId, AggregateQuery query)
+    CompletionStage<ServiceCallCollector> getMergedServiceCalls(String agentRollupId, AggregateQuery query)
             throws Exception {
         int maxServiceCallAggregatesPerTransactionAggregate =
-                getMaxServiceCallAggregatesPerTransactionAggregate(agentRollupId);
+                getMaxServiceCallAggregatesPerTransactionAggregate(agentRollupId).toCompletableFuture().get();
         ServiceCallCollector serviceCallCollector =
                 new ServiceCallCollector(maxServiceCallAggregatesPerTransactionAggregate);
-        long revisedFrom = query.from();
         long revisedTo = liveAggregateRepository.mergeInServiceCalls(agentRollupId, query,
                 serviceCallCollector);
+        AtomicLong revisedFrom = new AtomicLong(query.from());
+        CompletionStage<Void> stage = CompletableFuture.completedFuture(null);
         for (int rollupLevel = query.rollupLevel(); rollupLevel >= 0; rollupLevel--) {
-            AggregateQuery revisedQuery = ImmutableAggregateQuery.builder()
-                    .copyFrom(query)
-                    .from(revisedFrom)
-                    .to(revisedTo)
-                    .rollupLevel(rollupLevel)
-                    .build();
-            aggregateRepository.mergeServiceCallsInto(agentRollupId, revisedQuery,
-                    serviceCallCollector);
-            long lastRolledUpTime = serviceCallCollector.getLastCaptureTime();
-            revisedFrom = Math.max(revisedFrom, lastRolledUpTime + 1);
-            if (revisedFrom > revisedTo) {
-                break;
-            }
+            final int currentRollupLevel = rollupLevel;
+            stage = stage.thenCompose(ignored -> {
+                long from = revisedFrom.get();
+                if (from > revisedTo) {
+                    return CompletableFuture.completedFuture(null);
+                }
+                AggregateQuery revisedQuery = ImmutableAggregateQuery.builder()
+                        .copyFrom(query)
+                        .from(from)
+                        .to(revisedTo)
+                        .rollupLevel(currentRollupLevel)
+                        .build();
+                return aggregateRepository.mergeServiceCallsInto(agentRollupId, revisedQuery,
+                        serviceCallCollector, CassandraProfile.web)
+                        .thenAccept(v -> {
+                            long lastRolledUpTime = serviceCallCollector.getLastCaptureTime();
+                            revisedFrom.set(Math.max(from, lastRolledUpTime + 1));
+                        });
+            });
         }
-        return serviceCallCollector;
+        return stage.thenApply(ignored -> serviceCallCollector);
     }
 
     // query.from() is non-inclusive
-    ProfileCollector getMergedProfile(String agentRollupId, AggregateQuery query, boolean auxiliary,
-            List<String> includes, List<String> excludes, double truncateBranchPercentage)
-            throws Exception {
-        ProfileCollector profileCollector = getMergedProfile(agentRollupId, query, auxiliary);
-        MutableProfile profile = profileCollector.getProfile();
-        if (!includes.isEmpty() || !excludes.isEmpty()) {
-            profile.filter(includes, excludes);
-        }
-        profile.truncateBranches(truncateBranchPercentage);
-        return profileCollector;
+    CompletionStage<ProfileCollector> getMergedProfile(String agentRollupId, AggregateQuery query, boolean auxiliary,
+                                      List<String> includes, List<String> excludes, double truncateBranchPercentage) {
+        return getMergedProfile(agentRollupId, query, auxiliary, CassandraProfile.web)
+                .thenApply(profileCollector -> {
+                    MutableProfile profile = profileCollector.getProfile();
+                    if (!includes.isEmpty() || !excludes.isEmpty()) {
+                        profile.filter(includes, excludes);
+                    }
+                    profile.truncateBranches(truncateBranchPercentage);
+                    return profileCollector;
+                });
     }
 
-    @Nullable
-    String readFullQueryText(String agentRollupId, String fullQueryTextSha1) throws Exception {
+    CompletionStage<String> readFullQueryText(String agentRollupId, String fullQueryTextSha1, CassandraProfile profile) {
         // checking live data is not efficient since must perform many sha1 hashes
         // so check repository first
-        String fullQueryText =
-                aggregateRepository.readFullQueryText(agentRollupId, fullQueryTextSha1);
-        if (fullQueryText != null) {
-            return fullQueryText;
-        }
-        return liveAggregateRepository.getFullQueryText(agentRollupId, fullQueryTextSha1);
+        return aggregateRepository.readFullQueryText(agentRollupId, fullQueryTextSha1, profile).thenApply(
+                fullQueryText -> {
+                    if (fullQueryText != null) {
+                        return fullQueryText;
+                    }
+                    return liveAggregateRepository.getFullQueryText(agentRollupId, fullQueryTextSha1);
+                });
     }
 
     boolean hasMainThreadProfile(String agentRollupId, AggregateQuery query) throws Exception {
@@ -387,7 +435,7 @@ class TransactionCommonService {
                     .copyFrom(query)
                     .rollupLevel(rollupLevel)
                     .build();
-            if (aggregateRepository.hasMainThreadProfile(agentRollupId, revisedQuery)) {
+            if (aggregateRepository.hasMainThreadProfile(agentRollupId, revisedQuery, CassandraProfile.web).toCompletableFuture().get()) {
                 return true;
             }
         }
@@ -400,7 +448,7 @@ class TransactionCommonService {
                     .copyFrom(query)
                     .rollupLevel(rollupLevel)
                     .build();
-            if (aggregateRepository.hasAuxThreadProfile(agentRollupId, revisedQuery)) {
+            if (aggregateRepository.hasAuxThreadProfile(agentRollupId, revisedQuery, CassandraProfile.web).toCompletableFuture().get()) {
                 return true;
             }
         }
@@ -522,10 +570,9 @@ class TransactionCommonService {
         return rolledUpThroughputAggregates;
     }
 
-    private ProfileCollector getMergedProfile(String agentRollupId, AggregateQuery query,
-            boolean auxiliary) throws Exception {
+    private CompletionStage<ProfileCollector> getMergedProfile(String agentRollupId, AggregateQuery query,
+                                              boolean auxiliary, CassandraProfile profile) {
         ProfileCollector profileCollector = new ProfileCollector();
-        long revisedFrom = query.from();
         long revisedTo;
         if (auxiliary) {
             revisedTo = liveAggregateRepository.mergeInAuxThreadProfiles(agentRollupId, query,
@@ -534,57 +581,62 @@ class TransactionCommonService {
             revisedTo = liveAggregateRepository.mergeInMainThreadProfiles(agentRollupId, query,
                     profileCollector);
         }
+        AtomicLong revisedFrom = new AtomicLong(query.from());
+        CompletionStage<Void> stage = CompletableFuture.completedFuture(null);
         for (int rollupLevel = query.rollupLevel(); rollupLevel >= 0; rollupLevel--) {
-            AggregateQuery revisedQuery = ImmutableAggregateQuery.builder()
-                    .copyFrom(query)
-                    .from(revisedFrom)
-                    .to(revisedTo)
-                    .rollupLevel(rollupLevel)
-                    .build();
-            if (auxiliary) {
-                aggregateRepository.mergeAuxThreadProfilesInto(agentRollupId, revisedQuery,
-                        profileCollector);
+            final int currentRollupLevel = rollupLevel;
+            stage = stage.thenCompose(ignored -> {
+                long from = revisedFrom.get();
+                if (from > revisedTo) {
+                    return CompletableFuture.completedFuture(null);
+                }
+                AggregateQuery revisedQuery = ImmutableAggregateQuery.builder()
+                        .copyFrom(query)
+                        .from(from)
+                        .to(revisedTo)
+                        .rollupLevel(currentRollupLevel)
+                        .build();
+                CompletionStage<?> mergeStage;
+                if (auxiliary) {
+                    mergeStage = aggregateRepository.mergeAuxThreadProfilesInto(agentRollupId, revisedQuery,
+                            profileCollector, profile);
+                } else {
+                    mergeStage = aggregateRepository.mergeMainThreadProfilesInto(agentRollupId, revisedQuery,
+                            profileCollector, profile);
+                }
+                return mergeStage.thenAccept(v -> {
+                    long lastRolledUpTime = profileCollector.getLastCaptureTime();
+                    revisedFrom.set(Math.max(from, lastRolledUpTime + 1));
+                });
+            });
+        }
+        return stage.thenApply(ignored -> profileCollector);
+    }
+
+    private CompletionStage<Integer> getMaxQueryAggregatesPerTransactionAggregate(String agentRollupId) {
+        return configRepository.getAdvancedConfig(agentRollupId).thenApply(advancedConfig -> {
+            if (advancedConfig == null) {
+                return ConfigDefaults.ADVANCED_MAX_QUERY_AGGREGATES;
+            }
+            if (advancedConfig.hasMaxQueryAggregates()) {
+                return advancedConfig.getMaxQueryAggregates().getValue();
             } else {
-                aggregateRepository.mergeMainThreadProfilesInto(agentRollupId, revisedQuery,
-                        profileCollector);
+                return ConfigDefaults.ADVANCED_MAX_QUERY_AGGREGATES;
             }
-            long lastRolledUpTime = profileCollector.getLastCaptureTime();
-            revisedFrom = Math.max(revisedFrom, lastRolledUpTime + 1);
-            if (revisedFrom > revisedTo) {
-                break;
-            }
-        }
-        return profileCollector;
+        });
     }
 
-    private int getMaxQueryAggregatesPerTransactionAggregate(String agentRollupId)
-            throws Exception {
-        AdvancedConfig advancedConfig;
-        try {
-            advancedConfig = configRepository.getAdvancedConfig(agentRollupId);
-        } catch (AgentConfigNotFoundException e) {
-            return ConfigDefaults.ADVANCED_MAX_QUERY_AGGREGATES;
-        }
-        if (advancedConfig.hasMaxQueryAggregates()) {
-            return advancedConfig.getMaxQueryAggregates().getValue();
-        } else {
-            return ConfigDefaults.ADVANCED_MAX_QUERY_AGGREGATES;
-        }
-    }
-
-    private int getMaxServiceCallAggregatesPerTransactionAggregate(String agentRollupId)
-            throws Exception {
-        AdvancedConfig advancedConfig;
-        try {
-            advancedConfig = configRepository.getAdvancedConfig(agentRollupId);
-        } catch (AgentConfigNotFoundException e) {
-            return ConfigDefaults.ADVANCED_MAX_SERVICE_CALL_AGGREGATES;
-        }
-        if (advancedConfig.hasMaxServiceCallAggregates()) {
-            return advancedConfig.getMaxServiceCallAggregates().getValue();
-        } else {
-            return ConfigDefaults.ADVANCED_MAX_SERVICE_CALL_AGGREGATES;
-        }
+    private CompletionStage<Integer> getMaxServiceCallAggregatesPerTransactionAggregate(String agentRollupId) {
+        return configRepository.getAdvancedConfig(agentRollupId).thenApply(advancedConfig -> {
+            if (advancedConfig == null) {
+                return ConfigDefaults.ADVANCED_MAX_SERVICE_CALL_AGGREGATES;
+            }
+            if (advancedConfig.hasMaxServiceCallAggregates()) {
+                return advancedConfig.getMaxServiceCallAggregates().getValue();
+            } else {
+                return ConfigDefaults.ADVANCED_MAX_SERVICE_CALL_AGGREGATES;
+            }
+        });
     }
 
     private static class RollupCaptureTimeFn implements Function<Long, Long> {

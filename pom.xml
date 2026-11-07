@@ -5,7 +5,7 @@
 
   <groupId>org.glowroot</groupId>
   <artifactId>glowroot-parent</artifactId>
-  <version>0.14.1</version>
+  <version>0.14.8</version>
   <packaging>pom</packaging>
 
   <name>Glowroot Parent Project</name>
@@ -91,17 +91,17 @@
   </scm>
 
   <properties>
-    <grpc.version>1.60.0</grpc.version>
-    <protobuf.version>3.22.5</protobuf.version>
-    <protoc.version>3.22.5</protoc.version>
+    <grpc.version>1.80.0</grpc.version>
+    <protobuf.version>3.25.8</protobuf.version>
+    <protoc.version>3.25.8</protoc.version>
     <!-- need to stick to netty version that is used by grpc version above -->
-    <netty.version>4.1.100.Final</netty.version>
-    <logback.version>1.2.12</logback.version>
+    <netty.version>4.1.130.Final</netty.version>
+    <logback.version>1.2.13</logback.version>
     <slf4j.version>1.7.36</slf4j.version>
-    <immutables.version>2.9.3</immutables.version>
-    <checker.version>3.18.1</checker.version>
+    <immutables.version>2.12.1</immutables.version>
+    <checker.version>3.42.0</checker.version>
     <jmh.version>1.33</jmh.version>
-    <junit.version>5.9.3</junit.version>
+    <junit.version>5.12.2</junit.version>
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <project.reporting.outputEncoding>UTF-8</project.reporting.outputEncoding>
     <maven.build.timestamp.format>yyyy-MM-dd HH:mm:ss Z</maven.build.timestamp.format>
@@ -180,7 +180,7 @@
       </dependency>
       <dependency>
         <groupId>org.junit.jupiter</groupId>
-        <artifactId>junit-jupiter-api</artifactId>
+        <artifactId>junit-jupiter</artifactId>
         <version>${junit.version}</version>
       </dependency>
       <dependency>
@@ -189,29 +189,35 @@
         <version>${junit.version}</version>
       </dependency>
       <dependency>
+        <groupId>org.junit.platform</groupId>
+        <artifactId>junit-platform-launcher</artifactId>
+        <version>1.12.2</version>
+        <scope>test</scope>
+      </dependency>
+      <dependency>
         <groupId>com.google.guava</groupId>
         <artifactId>guava</artifactId>
-        <version>31.0.1-jre</version>
+        <version>33.5.0-jre</version>
       </dependency>
       <dependency>
         <groupId>com.fasterxml.jackson.core</groupId>
         <artifactId>jackson-core</artifactId>
-        <version>2.15.3</version>
+        <version>2.20.1</version>
       </dependency>
       <dependency>
         <groupId>com.fasterxml.jackson.core</groupId>
         <artifactId>jackson-databind</artifactId>
-        <version>2.15.3</version>
+        <version>2.20.1</version>
       </dependency>
       <dependency>
         <groupId>com.fasterxml.jackson.core</groupId>
         <artifactId>jackson-annotations</artifactId>
-        <version>2.15.3</version>
+        <version>2.20</version>
       </dependency>
       <dependency>
         <groupId>com.fasterxml.jackson.datatype</groupId>
         <artifactId>jackson-datatype-guava</artifactId>
-        <version>2.15.3</version>
+        <version>2.20.1</version>
       </dependency>
       <dependency>
         <groupId>org.checkerframework</groupId>
@@ -221,22 +227,29 @@
       <dependency>
         <groupId>com.google.errorprone</groupId>
         <artifactId>error_prone_annotations</artifactId>
-        <version>2.9.0</version>
+        <version>2.26.1</version>
+      </dependency>
+      <dependency>
+        <!-- override byte-buddy version pulled in by assertj (1.14.x) to match the version
+          used by mockito which supports Java 21+ class file versions -->
+        <groupId>net.bytebuddy</groupId>
+        <artifactId>byte-buddy</artifactId>
+        <version>1.17.5</version>
       </dependency>
       <dependency>
         <groupId>org.assertj</groupId>
         <artifactId>assertj-core</artifactId>
-        <version>3.25.1</version>
+        <version>3.25.3</version>
       </dependency>
       <dependency>
         <groupId>org.mockito</groupId>
         <artifactId>mockito-core</artifactId>
-        <version>5.9.0</version>
+        <version>5.18.0</version>
       </dependency>
       <dependency>
         <groupId>org.mockito</groupId>
         <artifactId>mockito-junit-jupiter</artifactId>
-        <version>5.9.0</version>
+        <version>5.18.0</version>
         <scope>test</scope>
       </dependency>
       <dependency>
@@ -316,7 +329,7 @@
           recent jdk -->
         <groupId>org.codehaus.mojo</groupId>
         <artifactId>animal-sniffer-maven-plugin</artifactId>
-        <version>1.23</version>
+        <version>1.27</version>
         <configuration>
           <signature>
             <groupId>org.codehaus.mojo.signature</groupId>
@@ -336,7 +349,7 @@
       <plugin>
         <groupId>org.sonatype.plugins</groupId>
         <artifactId>nexus-staging-maven-plugin</artifactId>
-        <version>1.6.8</version>
+        <version>1.7.0</version>
         <extensions>true</extensions>
         <configuration>
           <serverId>ossrh</serverId>
@@ -348,19 +361,19 @@
       <plugins>
         <plugin>
           <artifactId>maven-antrun-plugin</artifactId>
-          <version>1.8</version>
-        </plugin>
-        <plugin>
-          <artifactId>maven-assembly-plugin</artifactId>
-          <version>3.5.0</version>
-        </plugin>
-        <plugin>
-          <artifactId>maven-clean-plugin</artifactId>
           <version>3.2.0</version>
         </plugin>
         <plugin>
+          <artifactId>maven-assembly-plugin</artifactId>
+          <version>3.8.0</version>
+        </plugin>
+        <plugin>
+          <artifactId>maven-clean-plugin</artifactId>
+          <version>3.5.0</version>
+        </plugin>
+        <plugin>
           <artifactId>maven-compiler-plugin</artifactId>
-          <version>3.11.0</version>
+          <version>3.15.0</version>
           <configuration>
             <source>8</source>
             <target>8</target>
@@ -371,22 +384,22 @@
         </plugin>
         <plugin>
           <artifactId>maven-dependency-plugin</artifactId>
-          <version>3.5.0</version>
+          <version>3.11.0</version>
         </plugin>
         <plugin>
           <artifactId>maven-deploy-plugin</artifactId>
-          <version>3.1.1</version>
+          <version>3.1.4</version>
           <configuration>
             <deployAtEnd>true</deployAtEnd>
           </configuration>
         </plugin>
         <plugin>
           <artifactId>maven-enforcer-plugin</artifactId>
-          <version>3.3.0</version>
+          <version>3.6.3</version>
         </plugin>
         <plugin>
           <artifactId>maven-failsafe-plugin</artifactId>
-          <version>3.0.0</version>
+          <version>3.6.0-M1</version>
           <configuration>
             <systemPropertyVariables>
               <glowroot.test.fileLoggingOnly>true</glowroot.test.fileLoggingOnly>
@@ -398,11 +411,11 @@
         </plugin>
         <plugin>
           <artifactId>maven-install-plugin</artifactId>
-          <version>3.1.1</version>
+          <version>3.1.4</version>
         </plugin>
         <plugin>
           <artifactId>maven-jar-plugin</artifactId>
-          <version>3.3.0</version>
+          <version>3.5.0</version>
           <configuration>
             <archive>
               <manifestEntries>
@@ -416,35 +429,35 @@
         </plugin>
         <plugin>
           <artifactId>maven-javadoc-plugin</artifactId>
-          <version>3.5.0</version>
+          <version>3.12.0</version>
         </plugin>
         <plugin>
           <artifactId>maven-plugin-plugin</artifactId>
-          <version>3.7.1</version>
+          <version>4.0.0-beta-2</version>
         </plugin>
         <plugin>
           <artifactId>maven-remote-resources-plugin</artifactId>
-          <version>3.0.0</version>
-        </plugin>
-        <plugin>
-          <artifactId>maven-resources-plugin</artifactId>
           <version>3.3.0</version>
         </plugin>
         <plugin>
+          <artifactId>maven-resources-plugin</artifactId>
+          <version>3.5.0</version>
+        </plugin>
+        <plugin>
           <artifactId>maven-shade-plugin</artifactId>
-          <version>3.4.1</version>
+          <version>3.6.2</version>
         </plugin>
         <plugin>
           <artifactId>maven-site-plugin</artifactId>
-          <version>3.12.1</version>
+          <version>4.0.0-M16</version>
         </plugin>
         <plugin>
           <artifactId>maven-source-plugin</artifactId>
-          <version>3.2.1</version>
+          <version>3.4.0</version>
         </plugin>
         <plugin>
           <artifactId>maven-surefire-plugin</artifactId>
-          <version>3.0.0</version>
+          <version>3.6.0-M1</version>
           <configuration>
             <systemPropertyVariables>
               <glowroot.test.fileLoggingOnly>true</glowroot.test.fileLoggingOnly>
@@ -457,7 +470,7 @@
         <plugin>
           <groupId>com.github.wvengen</groupId>
           <artifactId>proguard-maven-plugin</artifactId>
-          <version>2.6.0</version>
+          <version>2.7.0</version>
         </plugin>
         <plugin>
           <groupId>com.github.os72</groupId>
@@ -467,17 +480,33 @@
         <plugin>
           <groupId>org.sonarsource.scanner.maven</groupId>
           <artifactId>sonar-maven-plugin</artifactId>
-          <version>3.10.0.2594</version>
+          <version>5.7.0.6970</version>
         </plugin>
         <plugin>
           <groupId>org.codehaus.mojo</groupId>
           <artifactId>build-helper-maven-plugin</artifactId>
-          <version>3.4.0</version>
+          <version>3.6.1</version>
         </plugin>
         <plugin>
           <groupId>org.jacoco</groupId>
           <artifactId>jacoco-maven-plugin</artifactId>
-          <version>0.8.8</version>
+          <version>0.8.15</version>
+        </plugin>
+        <plugin>
+          <!-- shaded modules relocate their dependencies and drop their maven metadata, so SBOM
+            scanners cannot see them in the shipped jars, see
+            https://github.com/glowroot/glowroot/issues/1268 -->
+          <groupId>org.cyclonedx</groupId>
+          <artifactId>cyclonedx-maven-plugin</artifactId>
+          <version>2.9.3</version>
+          <configuration>
+            <projectType>library</projectType>
+            <outputFormat>json</outputFormat>
+            <outputName>${project.artifactId}-${project.version}-cyclonedx</outputName>
+            <includeProvidedScope>false</includeProvidedScope>
+            <includeSystemScope>false</includeSystemScope>
+            <includeTestScope>false</includeTestScope>
+          </configuration>
         </plugin>
         <plugin>
           <groupId>org.eclipse.m2e</groupId>
@@ -546,9 +575,13 @@
       </modules>
     </profile>
     <profile>
-      <id>auto-activated-java-9</id>
+      <id>auto-activated-jmods</id>
       <activation>
-        <jdk>[9,)</jdk>
+        <file>
+          <!-- only add jmods when they exist; newer JDK distributions (e.g. Temurin 25+)
+            may not include the jmods directory -->
+          <exists>${java.home}/jmods/java.base.jmod</exists>
+        </file>
       </activation>
       <build>
         <pluginManagement>
@@ -562,6 +595,27 @@
                   <!-- java.sql.jmod is needed for glowroot-agent-embedded -->
                   <lib>${java.home}/jmods/java.sql.jmod</lib>
                 </libs>
+              </configuration>
+            </plugin>
+          </plugins>
+        </pluginManagement>
+      </build>
+    </profile>
+    <profile>
+      <!-- Java 21+ changed javac default behavior to not auto-discover annotation processors
+        from the classpath unless -proc:full is specified; this profile ensures that annotation
+        processors (e.g. Immutables, JMH) are discovered when building with Java 21+ -->
+      <id>auto-activated-java-21</id>
+      <activation>
+        <jdk>[21,)</jdk>
+      </activation>
+      <build>
+        <pluginManagement>
+          <plugins>
+            <plugin>
+              <artifactId>maven-compiler-plugin</artifactId>
+              <configuration>
+                <proc>full</proc>
               </configuration>
             </plugin>
           </plugins>
@@ -679,7 +733,7 @@
         <plugins>
           <plugin>
             <artifactId>maven-gpg-plugin</artifactId>
-            <version>3.0.1</version>
+            <version>3.2.8</version>
             <executions>
               <execution>
                 <phase>verify</phase>

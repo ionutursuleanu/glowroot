@@ -20,7 +20,7 @@
 
 // Glowroot dependency is used for spinner, but is not used in export file
 // angular dependency is used to call login.goToLogin() on 401 responses, but is not used in export file
-/* global $, Handlebars, JST, moment, Glowroot, angular, SqlPrettyPrinter, gtClipboard, gtParseIncludesExcludes, console */
+/* global $, Handlebars, JST, moment, Glowroot, angular, SqlPrettyPrinter, gtClipboard, gtParseIncludesExcludes, console, gtDateTimeFormat */
 
 // IMPORTANT: DO NOT USE ANGULAR IN THIS FILE
 // that would require adding angular to trace-export.js
@@ -270,8 +270,21 @@ HandlebarsRendering = (function () {
     return options.inverse(this);
   });
 
+  function getDateTimeWithMillisFormat() {
+    if (typeof gtDateTimeFormat !== 'undefined') {
+      return gtDateTimeFormat.dateTimeWithMillis;
+    }
+    var hour12 = true;
+    try {
+      hour12 = new Intl.DateTimeFormat(undefined, {hour: 'numeric'}).resolvedOptions().hour12 !== false;
+    } catch (ignored) {
+      // keep English 12-hour default
+    }
+    return hour12 ? 'YYYY-MM-DD h:mm:ss.SSS a (Z)' : 'YYYY-MM-DD HH:mm:ss.SSS (Z)';
+  }
+
   Handlebars.registerHelper('date', function (timestamp) {
-    return moment(timestamp).format('YYYY-MM-DD h:mm:ss.SSS a (Z)');
+    return moment(timestamp).format(getDateTimeWithMillisFormat());
   });
 
   Handlebars.registerHelper('nanosToMillis', function (nanos) {
@@ -386,15 +399,19 @@ HandlebarsRendering = (function () {
     var messageLength;
     if (traceEntry.queryMessage) {
       var sharedQueryText = traceEntry.queryMessage.sharedQueryText;
-      if (sharedQueryText.fullTextSha1) {
-        // query text is truncated, this is a "long message"
+      // Truncated form uses truncatedText + fullTextSha1 (no fullText). Treat as long even if
+      // fullTextSha1 is missing/empty — otherwise fullText.length throws (see #1107).
+      if (sharedQueryText && (sharedQueryText.fullTextSha1 || sharedQueryText.truncatedText)) {
         messageLength = traceEntryMessageLength + 1;
       } else {
         var queryMessage = traceEntry.queryMessage;
-        messageLength = queryMessage.prefix.length + sharedQueryText.fullText.length + queryMessage.suffix.length;
+        var prefix = queryMessage.prefix || '';
+        var suffix = queryMessage.suffix || '';
+        var fullText = sharedQueryText && sharedQueryText.fullText ? sharedQueryText.fullText : '';
+        messageLength = prefix.length + fullText.length + suffix.length;
       }
     } else {
-      messageLength = traceEntry.message.length;
+      messageLength = (traceEntry.message || '').length;
     }
     if (messageLength > traceEntryMessageLength) {
       return options.fn(this);
@@ -405,11 +422,11 @@ HandlebarsRendering = (function () {
   Handlebars.registerHelper('ifLongQuery', function (query, options) {
     var textLength;
     var sharedQueryText = query.sharedQueryText;
-    if (sharedQueryText.fullTextSha1) {
+    if (sharedQueryText && (sharedQueryText.fullTextSha1 || sharedQueryText.truncatedText)) {
       // query text is truncated, this is a "long query"
       textLength = queryTextLength + 1;
     } else {
-      textLength = sharedQueryText.fullText.length;
+      textLength = sharedQueryText && sharedQueryText.fullText ? sharedQueryText.fullText.length : 0;
     }
     if (textLength > queryTextLength) {
       return options.fn(this);
@@ -469,14 +486,15 @@ HandlebarsRendering = (function () {
     var totalChars = traceEntryMessageLength - 2 * traceEntry.depth;
     var messageToSlice;
     if (traceEntry.queryMessage) {
-      var sharedQueryText = traceEntry.queryMessage.sharedQueryText;
+      var sharedQueryText = traceEntry.queryMessage.sharedQueryText || {};
+      var prefix = traceEntry.queryMessage.prefix || '';
       if (sharedQueryText.truncatedText) {
-        messageToSlice = traceEntry.queryMessage.prefix + sharedQueryText.truncatedText;
+        messageToSlice = prefix + sharedQueryText.truncatedText;
       } else {
-        messageToSlice = traceEntry.queryMessage.prefix + sharedQueryText.fullText;
+        messageToSlice = prefix + (sharedQueryText.fullText || '');
       }
     } else {
-      messageToSlice = traceEntry.message;
+      messageToSlice = traceEntry.message || '';
     }
     return messageToSlice.slice(0, Math.ceil(totalChars / 2));
   });
@@ -485,36 +503,37 @@ HandlebarsRendering = (function () {
     var totalChars = traceEntryMessageLength - 2 * traceEntry.depth;
     var messageToSlice;
     if (traceEntry.queryMessage) {
-      var sharedQueryText = traceEntry.queryMessage.sharedQueryText;
+      var sharedQueryText = traceEntry.queryMessage.sharedQueryText || {};
+      var suffix = traceEntry.queryMessage.suffix || '';
       if (sharedQueryText.truncatedEndText) {
-        messageToSlice = sharedQueryText.truncatedEndText + traceEntry.queryMessage.suffix;
+        messageToSlice = sharedQueryText.truncatedEndText + suffix;
       } else {
-        messageToSlice = sharedQueryText.fullText + traceEntry.queryMessage.suffix;
+        messageToSlice = (sharedQueryText.fullText || '') + suffix;
       }
     } else {
-      messageToSlice = traceEntry.message;
+      messageToSlice = traceEntry.message || '';
     }
     return messageToSlice.slice(-Math.floor(totalChars / 2));
   });
 
   Handlebars.registerHelper('queryFirstPart', function (query) {
     var messageToSlice;
-    var sharedQueryText = query.sharedQueryText;
+    var sharedQueryText = query.sharedQueryText || {};
     if (sharedQueryText.truncatedText) {
       messageToSlice = sharedQueryText.truncatedText;
     } else {
-      messageToSlice = sharedQueryText.fullText;
+      messageToSlice = sharedQueryText.fullText || '';
     }
     return messageToSlice.slice(0, Math.ceil(queryTextLength / 2));
   });
 
   Handlebars.registerHelper('queryLastPart', function (query) {
     var messageToSlice;
-    var sharedQueryText = query.sharedQueryText;
+    var sharedQueryText = query.sharedQueryText || {};
     if (sharedQueryText.truncatedEndText) {
       messageToSlice = sharedQueryText.truncatedEndText;
     } else {
-      messageToSlice = query.sharedQueryText.fullText;
+      messageToSlice = sharedQueryText.fullText || '';
     }
     return messageToSlice.slice(-Math.floor(queryTextLength / 2));
   });
@@ -530,8 +549,9 @@ HandlebarsRendering = (function () {
       }
       html += escapeHtml(throwable.className + message) + '\n</div>';
       var i;
-      for (i = 0; i < throwable.stackTraceElements.length; i++) {
-        html += 'at ' + escapeHtml(throwable.stackTraceElements[i]) + '\n';
+      var stackTraceElements = throwable.stackTraceElements || [];
+      for (i = 0; i < stackTraceElements.length; i++) {
+        html += 'at ' + escapeHtml(stackTraceElements[i]) + '\n';
       }
       if (throwable.framesInCommonWithEnclosing) {
         html += '... ' + throwable.framesInCommonWithEnclosing + ' more\n';
@@ -549,6 +569,7 @@ HandlebarsRendering = (function () {
     // don't pre-wrap stack traces (using overflow-x: auto on container)
     var html = '<div class="gt-monospace" style="white-space: pre;">';
     var i;
+    stackTraceElements = stackTraceElements || [];
     for (i = 0; i < stackTraceElements.length; i++) {
       html += escapeHtml(stackTraceElements[i]) + '\n';
     }
@@ -557,6 +578,9 @@ HandlebarsRendering = (function () {
   });
 
   Handlebars.registerHelper('firstLocationStackTraceElementHtml', function (stackTraceElements) {
+    if (!stackTraceElements || !stackTraceElements.length) {
+      return '';
+    }
     return escapeHtml(stackTraceElements[0]);
   });
 
@@ -630,6 +654,10 @@ HandlebarsRendering = (function () {
             .done(function (data) {
               // first time opening
               initTraceEntryMessageLength();
+              if (!data.entries || !data.entries.length) {
+                $selector.removeClass('d-none');
+                return;
+              }
               mergeSharedQueryTextsIntoEntries(data.entries, data.sharedQueryTexts);
               var last = data.entries[data.entries.length - 1];
               // updating traceDurationNanos is needed for live traces
@@ -725,6 +753,10 @@ HandlebarsRendering = (function () {
             .done(function (data) {
               // first time opening
               initQueryTextLength();
+              if (!data.queries || !data.queries.length) {
+                $selector.removeClass('d-none');
+                return;
+              }
               prepareQueries(data.queries, data.sharedQueryTexts);
               queries = data.queries;
               // un-hide before building in case there are lots of trace entries, at least can see first few quickly
@@ -886,12 +918,17 @@ HandlebarsRendering = (function () {
   }
 
   function mergeSharedQueryTextsIntoEntries(entries, sharedQueryTexts) {
+    if (!entries) {
+      return;
+    }
     $.each(entries, function (index, entry) {
       if (entry.queryMessage) {
-        entry.queryMessage.sharedQueryText = sharedQueryTexts[entry.queryMessage.sharedQueryTextIndex];
-        if (entry.queryMessage.sharedQueryText.fullText) {
-          entry.message = entry.queryMessage.prefix + entry.queryMessage.sharedQueryText.fullText
-              + entry.queryMessage.suffix;
+        var sharedQueryText = sharedQueryTexts
+            && sharedQueryTexts[entry.queryMessage.sharedQueryTextIndex];
+        entry.queryMessage.sharedQueryText = sharedQueryText;
+        if (sharedQueryText && sharedQueryText.fullText) {
+          entry.message = (entry.queryMessage.prefix || '') + sharedQueryText.fullText
+              + (entry.queryMessage.suffix || '');
         }
       }
       if (entry.childEntries) {
@@ -901,12 +938,16 @@ HandlebarsRendering = (function () {
   }
 
   function prepareQueries(queries, sharedQueryTexts) {
+    if (!queries) {
+      return;
+    }
     queries.sort(function (a, b) {
       return b.totalDurationNanos - a.totalDurationNanos;
     });
     $.each(queries, function (index, query) {
       query.index = index;
-      query.sharedQueryText = sharedQueryTexts[query.sharedQueryTextIndex];
+      query.sharedQueryText = sharedQueryTexts
+          && sharedQueryTexts[query.sharedQueryTextIndex];
       query.timePerExecution = query.totalDurationNanos / (1000000 * query.executionCount);
       if (query.totalRows === undefined) {
         query.rowsPerExecution = undefined;
@@ -1181,7 +1222,8 @@ HandlebarsRendering = (function () {
         });
         var traceEntryIndex = expandedTraceEntryNode.data('gt-trace-entry-index');
         var queryMessage = flattenedTraceEntries[traceEntryIndex].queryMessage;
-        if (queryMessage && queryMessage.sharedQueryText.fullTextSha1 && !queryMessage.sharedQueryText.fullText) {
+        if (queryMessage && queryMessage.sharedQueryText && queryMessage.sharedQueryText.fullTextSha1
+            && !queryMessage.sharedQueryText.fullText) {
           $traceParent = parent.parents('.gt-trace-parent');
           agentId = $traceParent.data('gtAgentId');
           spinner = Glowroot.showSpinner(expanded.find('.gt-trace-detail-spinner'), function () {
@@ -1194,15 +1236,17 @@ HandlebarsRendering = (function () {
                 if (data.expired) {
                   expandedTraceEntryNode.text('[the full query text has expired]');
                 } else {
-                  expandedTraceEntryNode.text(queryMessage.prefix + data.fullText + queryMessage.suffix);
-                  if (queryMessage.prefix === 'jdbc query: ') {
-                    formatSql(unexpanded, expanded, data.fullText, 'jdbc query:', queryMessage.suffix.trim());
-                  } else if (queryMessage.prefix === 'jdbc execute: ') {
+                  var prefix = queryMessage.prefix || '';
+                  var suffix = queryMessage.suffix || '';
+                  expandedTraceEntryNode.text(prefix + data.fullText + suffix);
+                  if (prefix === 'jdbc query: ') {
+                    formatSql(unexpanded, expanded, data.fullText, 'jdbc query:', suffix.trim());
+                  } else if (prefix === 'jdbc execute: ') {
                     // this is for traces captured prior to 0.12.3
-                    formatSql(unexpanded, expanded, data.fullText, 'jdbc execute:', queryMessage.suffix.trim());
-                  } else if (queryMessage.prefix === 'jdbc execution: ') {
+                    formatSql(unexpanded, expanded, data.fullText, 'jdbc execute:', suffix.trim());
+                  } else if (prefix === 'jdbc execution: ') {
                     // this is for traces captured prior to 0.10.1
-                    formatSql(unexpanded, expanded, data.fullText, 'jdbc execution:', queryMessage.suffix.trim());
+                    formatSql(unexpanded, expanded, data.fullText, 'jdbc execution:', suffix.trim());
                   }
                   // so other trace entries with same shared query text don't need to go to server
                   queryMessage.sharedQueryText.fullText = data.fullText;
@@ -1222,21 +1266,23 @@ HandlebarsRendering = (function () {
                   doAfter();
                 }
               });
-        } else if (queryMessage && queryMessage.sharedQueryText.fullText) {
+        } else if (queryMessage && queryMessage.sharedQueryText && queryMessage.sharedQueryText.fullText) {
           // full text is already available for short query texts, or was already fetched above
-          expandedTraceEntryNode.text(queryMessage.prefix + queryMessage.sharedQueryText.fullText
-              + queryMessage.suffix);
-          if (queryMessage.prefix === 'jdbc query: ') {
+          var prefix = queryMessage.prefix || '';
+          var suffix = queryMessage.suffix || '';
+          expandedTraceEntryNode.text(prefix + queryMessage.sharedQueryText.fullText
+              + suffix);
+          if (prefix === 'jdbc query: ') {
             formatSql(unexpanded, expanded, queryMessage.sharedQueryText.fullText, 'jdbc query:',
-                queryMessage.suffix.trim());
-          } else if (queryMessage.prefix === 'jdbc execute: ') {
+                suffix.trim());
+          } else if (prefix === 'jdbc execute: ') {
             // this is for traces captured prior to 0.12.3
             formatSql(unexpanded, expanded, queryMessage.sharedQueryText.fullText, 'jdbc execute:',
-                queryMessage.suffix.trim());
-          } else if (queryMessage.prefix === 'jdbc execution: ') {
+                suffix.trim());
+          } else if (prefix === 'jdbc execution: ') {
             // this is for traces captured prior to 0.10.1
             formatSql(unexpanded, expanded, queryMessage.sharedQueryText.fullText, 'jdbc execution:',
-                queryMessage.suffix.trim());
+                suffix.trim());
           }
           doAfter();
         } else {
@@ -1246,8 +1292,8 @@ HandlebarsRendering = (function () {
             var afterPrefixStripped = text.substring('jdbc execution: '.length);
             var afterRowsStripped = afterPrefixStripped.replace(/ => [0-9]+ rows?$/, '');
             var queryText = afterRowsStripped.replace(/ \[.*?]$/, '');
-            var suffix = afterPrefixStripped.substring(queryText.length + 1);
-            formatSql(unexpanded, expanded, queryText, 'jdbc execution:', suffix);
+            var legacySuffix = afterPrefixStripped.substring(queryText.length + 1);
+            formatSql(unexpanded, expanded, queryText, 'jdbc execution:', legacySuffix);
           }
           doAfter();
         }
@@ -1257,7 +1303,8 @@ HandlebarsRendering = (function () {
         });
         var traceQueryIndex = expandedTraceQueryNode.data('gt-trace-query-index');
         var query = queries[traceQueryIndex];
-        if (query && query.sharedQueryText.fullTextSha1 && !query.sharedQueryText.fullText) {
+        if (query && query.sharedQueryText && query.sharedQueryText.fullTextSha1
+            && !query.sharedQueryText.fullText) {
           $traceParent = parent.parents('.gt-trace-parent');
           agentId = $traceParent.data('gtAgentId');
           spinner = Glowroot.showSpinner(expanded.find('.gt-trace-detail-spinner'), function () {
@@ -1289,10 +1336,12 @@ HandlebarsRendering = (function () {
                   doAfter();
                 }
               });
-        } else if (query) {
+        } else if (query && query.sharedQueryText && query.sharedQueryText.fullText) {
           // full text is already available for short query texts, or was already fetched above
           expandedTraceQueryNode.text(query.sharedQueryText.fullText);
           formatSql(unexpanded, expanded, query.sharedQueryText.fullText);
+          doAfter();
+        } else {
           doAfter();
         }
       } else {

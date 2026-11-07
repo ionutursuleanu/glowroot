@@ -78,6 +78,26 @@ public abstract class EmbeddedStorageConfig implements StorageConfig {
         return 500;
     }
 
+    /**
+     * H2 cache sizing for embedded: {@code fixed} (MB in {@link #h2CacheValue()}),
+     * {@code auto} (128 MB target), or {@code percent} (% of -Xmx in {@link #h2CacheValue()}).
+     * Effective size is clamped; see {@link H2CacheSize}. Default is fixed
+     * {@link H2CacheSize#DEFAULT_MB} MB.
+     */
+    @Value.Default
+    public String h2CacheMode() {
+        return H2CacheSize.MODE_FIXED;
+    }
+
+    /**
+     * MB when mode is {@code fixed}, or percent of max heap when mode is {@code percent}.
+     * Ignored when mode is {@code auto}.
+     */
+    @Value.Default
+    public int h2CacheValue() {
+        return H2CacheSize.DEFAULT_MB;
+    }
+
     @Value.Derived
     @JsonIgnore
     public String version() {

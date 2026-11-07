@@ -22,6 +22,8 @@ import java.lang.instrument.Instrumentation;
 import java.util.List;
 import java.util.Map;
 
+import com.fasterxml.jackson.core.StreamWriteConstraints;
+import com.google.common.base.Strings;
 import org.checkerframework.checker.nullness.qual.MonotonicNonNull;
 import org.checkerframework.checker.nullness.qual.Nullable;
 import org.slf4j.Logger;
@@ -39,7 +41,8 @@ import static com.google.common.base.Preconditions.checkNotNull;
 
 class EmbeddedGlowrootAgentInit implements GlowrootAgentInit {
 
-    private static final Logger logger = LoggerFactory.getLogger(EmbeddedGlowrootAgentInit.class);
+    // same logger name as version / "UI listening" lines (visible in console + glowroot log)
+    private static final Logger startupLogger = LoggerFactory.getLogger("org.glowroot");
 
     private final File dataDir;
     private final boolean offlineViewer;
@@ -66,6 +69,11 @@ class EmbeddedGlowrootAgentInit implements GlowrootAgentInit {
         this.agentDirLockCloseable = agentDirLockCloseable;
         final boolean configReadOnly =
                 Boolean.parseBoolean(properties.get("glowroot.config.readOnly"));
+        // Same as central (#1122 / PR #1160): deep profile JSON can exceed Jackson's default
+        // max nesting depth (1000). Override early, before UI serializes profiles.
+        // glowroot.properties: jackson.max.nesting.depth=<n>
+        // or JVM: -Dglowroot.jackson.max.nesting.depth=<n>
+        applyJacksonStreamWriteConstraints(properties);
         embeddedAgentModule = new EmbeddedAgentModule(pluginsDir, confDirs, configReadOnly, logDir,
                 tmpDir, instrumentation, preCheckClassFileTransformer, glowrootJarFile,
                 glowrootVersion, offlineViewer);
@@ -78,7 +86,10 @@ class EmbeddedGlowrootAgentInit implements GlowrootAgentInit {
                 embeddedAgentModule.onEnteringMain(confDirs, configReadOnly, dataDir,
                         glowrootJarFile, properties, instrumentation, collectorProxyClass,
                         glowrootVersion, mainClass);
-                // starting new thread in order not to block startup
+                // starting new thread in order not to block application startup; daemon so the
+                // JVM can still exit if main fails quickly (see #1002)
+                startupLogger.info("initializing embedded UI (asynchronous;"
+                        + " \"UI listening\" follows when bind succeeds)");
                 Thread thread = new Thread(new Runnable() {
                     @Override
                     public void run() {
@@ -89,7 +100,8 @@ class EmbeddedGlowrootAgentInit implements GlowrootAgentInit {
                             embeddedAgentModule.waitForSimpleRepoModule();
                             embeddedAgentModule.initEmbeddedServer();
                         } catch (Exception e) {
-                            logger.error(e.getMessage(), e);
+                            startupLogger.error("embedded UI failed to start: {}", e.getMessage(),
+                                    e);
                         }
                     }
                 });
@@ -102,6 +114,8 @@ class EmbeddedGlowrootAgentInit implements GlowrootAgentInit {
             // this is for offline viewer and for tests
             onEnteringMain.run(null);
         } else {
+            // UI bind is deferred until application main (not during premain)
+            startupLogger.info("embedded UI will start after application main is entered");
             embeddedAgentModule.setOnEnteringMain(onEnteringMain);
         }
     }
@@ -135,4 +149,14 @@ class EmbeddedGlowrootAgentInit implements GlowrootAgentInit {
     @Override
     @OnlyUsedByTests
     public void awaitClose() {}
+
+    private static void applyJacksonStreamWriteConstraints(Map<String, String> properties) {
+        int maxNestingDepth = 1000;
+        String jacksonMaxNestingDepth = properties.get("glowroot.jackson.max.nesting.depth");
+        if (!Strings.isNullOrEmpty(jacksonMaxNestingDepth)) {
+            maxNestingDepth = Integer.parseInt(jacksonMaxNestingDepth);
+        }
+        StreamWriteConstraints.overrideDefaultStreamWriteConstraints(StreamWriteConstraints
+                .builder().maxNestingDepth(maxNestingDepth).build());
+    }
 }

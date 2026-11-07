@@ -10,16 +10,16 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
-      - name: Set up JDK 11 for build
-        uses: actions/setup-java@v4
+      - name: Set up JDK 17 for build
+        uses: actions/setup-java@v5.2.0
         with:
           distribution: adopt
-          java-version: 11
+          java-version: 17
 
       - name: Restore cache
-        uses: actions/cache@v4
+        uses: actions/cache@v5.0.3
         with:
           path: |
             ~/.m2/repository
@@ -59,8 +59,7 @@ jobs:
           VERSION: ${{ steps.set-version.outputs.release-version }}
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          sed -ri "s/glowroot-[0-9]+.[0-9]+.[0-9]+(-beta(\.[0-9]+)?)?-dist.zip/glowroot-$VERSION-dist.zip/g" README.md
-          sed -ri "s#https://github.com/glowroot/glowroot/releases/download/v[0-9]+.[0-9]+.[0-9]+(-beta(\.[0-9]+)?)?/#https://github.com/glowroot/glowroot/releases/download/v$VERSION/#" README.md
+          # README quick start uses releases/latest (no pinned zip URL) — wiki sed below still runs on stable releases.
 
           mvn versions:set -DgenerateBackupPoms=false -DnewVersion=$VERSION
 
@@ -85,13 +84,56 @@ jobs:
 
           # gpg_key_id is needed for signing the rpm for the yum repository (see glowroot-central/pom.xml)
           gpg_key_id=$(gpg --list-keys --with-colons | grep ^pub | cut -d':' -f5 | tail -c 8)
-          mvn clean deploy -pl :glowroot-parent,:glowroot-agent-api,:glowroot-agent-plugin-api,:glowroot-agent-it-harness,:glowroot-agent,:glowroot-central \
+          mvn clean install -pl :glowroot-parent,:glowroot-agent-api,:glowroot-agent-plugin-api,:glowroot-agent-it-harness,:glowroot-agent,:glowroot-central \
                            -Pjavadoc \
                            -Prelease \
                            -Dglowroot.build.commit=$(git rev-parse HEAD) \
                            -DskipTests \
                            -Dgpg.key.id=$gpg_key_id \
                            --settings .github/scripts/settings.xml
+
+      - name: Generate SBOMs
+        env:
+          VERSION: ${{ steps.set-version.outputs.release-version }}
+        run: |
+          # merge the agent shaded module BOMs into a single BOM describing the agent dist
+          # sbomasm augment merge is used since cyclonedx-cli merge leaves duplicate bom-refs
+          # (https://github.com/CycloneDX/cyclonedx-cli/issues/326) and the other sbomasm strategies
+          # deduplicate on name and version, dropping the netty-tcnative classifier variants
+          # limitation: augment matches components on purl regardless of version, so a library
+          # shipped in different versions by several jars would only be listed once
+
+          # every shipped agent/shaded module runs makeBom (it-harness does not)
+          mkdir sbom
+          cp agent/shaded/*/target/glowroot-agent-*-$VERSION-cyclonedx.json sbom/
+          boms=(sbom/*-cyclonedx.json)
+
+          # sbomasm runs isolated from this job's secrets: image pinned by digest, only the BOMs mounted, no network
+          sbomasm() {
+            docker run --rm --network none --user "$(id -u):$(id -g)" -v "$PWD/sbom:/sbom" -w /sbom \
+                       ghcr.io/interlynk-io/sbomasm:v2.1.1@sha256:7ba595f4cf35656eafbeaf82f022361f8406f5d6a3f79583dd1136b7309c0133 \
+                       "$@"
+          }
+          sbomasm assemble \
+                  --augmentMerge \
+                  --outputSpecVersion 1.6 \
+                  --primary glowroot-agent-core-$VERSION-cyclonedx.json \
+                  --output glowroot-agent-$VERSION-merged-cyclonedx.json \
+                  "${boms[@]#sbom/}"
+
+          # the augment merge keeps the root component of the primary BOM (glowroot-agent-core),
+          # so make it describe the agent dist instead
+          sbomasm edit \
+                  --subject primary-component \
+                  --type application \
+                  --name glowroot-agent \
+                  --version $VERSION \
+                  --description "Glowroot Agent" \
+                  --purl "pkg:maven/org.glowroot/glowroot-agent@$VERSION?type=jar" \
+                  --output glowroot-$VERSION-sbom.cdx.json \
+                  glowroot-agent-$VERSION-merged-cyclonedx.json
+
+          cp central/target/glowroot-central-$VERSION-cyclonedx.json sbom/glowroot-central-$VERSION-sbom.cdx.json
 
       - name: Create GitHub release
         env:
@@ -112,7 +154,9 @@ jobs:
                             v$VERSION \
                             glowroot-$VERSION-dist.zip \
                             glowroot-central-$VERSION-dist.zip \
-                            glowroot-central-$VERSION-dist.war
+                            glowroot-central-$VERSION-dist.war \
+                            sbom/glowroot-$VERSION-sbom.cdx.json \
+                            sbom/glowroot-central-$VERSION-sbom.cdx.json
 
       - name: Update glowroot-central Docker Hub image
         env:
@@ -137,7 +181,7 @@ jobs:
         run: |
           aws s3 sync central/target/yum s3://glowroot.org/yum
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
         with:
           repository: ${{github.repository}}.wiki
 

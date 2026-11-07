@@ -1,4 +1,5 @@
-FROM eclipse-temurin:17.0.9_9-jdk-jammy as builder
+ARG JAVA_VERSION=25.0.4_7-jdk-noble
+FROM eclipse-temurin:$JAVA_VERSION AS builder
 
 COPY target/glowroot-central-*.zip /tmp/glowroot-central.zip
 RUN useradd --no-log-init -r -g root glowroot
@@ -7,7 +8,7 @@ RUN unzip -d /tmp /tmp/glowroot-central.zip \
     && chown -R glowroot:root /tmp/glowroot-central \
     && chmod -R g+rw /tmp/glowroot-central
 
-FROM eclipse-temurin:17.0.9_9-jdk-jammy
+FROM eclipse-temurin:$JAVA_VERSION
 
 COPY docker-entrypoint.sh /usr/local/bin/
 COPY glowroot-central.sh /usr/local/bin/

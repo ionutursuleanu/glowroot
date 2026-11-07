@@ -75,6 +75,14 @@
     </div>
   </div>
 </div>
+<div class="row"
+     ng-if="filterCriteriaInvalid">
+  <div class="offset-xl-4 col-xl-8 mt-4">
+    <div class="gt-chart-warning">
+      Fix the invalid filter criteria below to refresh the chart
+    </div>
+  </div>
+</div>
 <div ng-form="formCtrl"
      gt-form-with-primary-button
      class="mt-4">
@@ -252,6 +260,19 @@
         <button class="btn btn-secondary gt-button-spacing"
                 ng-click="clearCriteria()">
           Clear criteria
+        </button>
+        <button type="button"
+                class="btn btn-link gt-button-spacing p-0 align-baseline"
+                uib-popover-template="'template/help/traces-filters.html'"
+                popover-class="gt-traces-filters-popover"
+                popover-placement="top"
+                popover-trigger="'outsideClick'"
+                style="line-height: 1; vertical-align: middle;"
+                title="Filter help"
+                aria-label="Filter help">
+          <span class="fas fa-info-circle"
+                style="font-size: 1.25rem;">
+          </span>
         </button>
       </div>
     </div>

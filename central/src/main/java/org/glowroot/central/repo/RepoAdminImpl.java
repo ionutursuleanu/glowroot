@@ -22,6 +22,7 @@ import java.util.Map;
 
 import com.datastax.oss.driver.api.core.CqlIdentifier;
 import com.datastax.oss.driver.api.core.metadata.schema.TableMetadata;
+import org.glowroot.common2.repo.CassandraProfile;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -56,8 +57,14 @@ public class RepoAdminImpl implements RepoAdmin {
 
     @Override
     public void runHealthCheck() throws Exception {
+        // Cheap Cassandra liveness probe (fails when ControlConnection / all nodes are down).
+        session.read("select release_version from system.local where key = 'local'",
+                CassandraProfile.web);
         long now = clock.currentTimeMillis();
-        activeAgentDao.readActiveTopLevelAgentRollups(now - HOURS.toMillis(4), now);
+        // Must wait: previously the CompletionStage was ignored, so /health always returned 200
+        // even when Cassandra was unreachable (see github.com/glowroot/glowroot/issues/766).
+        activeAgentDao.readActiveTopLevelAgentRollups(now - HOURS.toMillis(4), now, CassandraProfile.web)
+                .toCompletableFuture().get();
     }
 
     @Override
@@ -97,7 +104,7 @@ public class RepoAdminImpl implements RepoAdmin {
 
     @Override
     public int updateCassandraTwcsWindowSizes() throws Exception {
-        CentralStorageConfig storageConfig = configRepository.getCentralStorageConfig();
+        CentralStorageConfig storageConfig = configRepository.getCentralStorageConfig().toCompletableFuture().join();
         List<String> tableNames = new ArrayList<>();
         for (TableMetadata table : session.getTables()) {
             Map<String, String> compaction = (Map<String, String>) table.getOptions()
